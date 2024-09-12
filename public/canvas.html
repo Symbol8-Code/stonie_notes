@@ -1,0 +1,164 @@
+<html>
+
+<head>
+    <title>STonIE Note - Canvas</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #header {
+            background-color: #f0f0f0;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #container {
+            display: flex;
+            flex-grow: 1;
+        }
+
+        #mycanvas {
+            flex-grow: 1;
+            height: 100%;
+            touch-action: none;
+            border: 1px solid black;
+            width: calc(100% - 200px);
+        }
+
+        #controls {
+            width: 200px;
+            background-color: #f0f0f0;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+    </style>
+
+    <script type='text/javascript'>
+        var lastPt = null;
+        var canvas;
+        var ctx;
+        var offset;
+
+        async function sendCanvasToBackend() {
+            const canvasData = canvas.toDataURL("image/png");
+            const canvasTitle = document.getElementById('canvas-title').value;
+            console.log("Canvas Data: ", canvasData)
+
+            try {
+                const response = await fetch('/api/save-canvas', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ canvasData, canvasTitle }),
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    alert('Canvas saved successfully: ' + result.message);
+                } else {
+                    throw new Error('Failed to save canvas');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to save canvas. Please try again.');
+            }
+        }
+
+        function init() {
+            canvas = document.getElementById("mycanvas");
+            ctx = canvas.getContext("2d");
+            offset = getOffset(canvas);
+
+            console.log("Offsets: ", offset)
+
+            // Set canvas size to match its container
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+
+            // Fill the canvas with a white background
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (window.PointerEvent) {
+                canvas.addEventListener("pointerdown", function () {
+                    canvas.addEventListener("pointermove", draw, false);
+                }
+                    , false);
+                canvas.addEventListener("pointerup", endPointer, false);
+            }
+            else {
+                //Provide fallback for user agents that do not support Pointer Events
+                canvas.addEventListener("mousedown", function () {
+                    canvas.addEventListener("mousemove", draw, false);
+                }
+                    , false);
+                canvas.addEventListener("mouseup", endPointer, false);
+            }
+        }
+
+        // Event handler called for each pointerdown event:
+        function draw(e) {
+
+            pointX = e.pageX - offset["left"]
+            pointY = e.pageY - offset["top"]
+
+            if (lastPt != null) {
+                ctx.beginPath();
+                // Start at previous point
+                ctx.moveTo(lastPt.x, lastPt.y);
+                // Line to latest point
+                ctx.lineTo(pointX, pointY);
+                // Draw it!
+                ctx.stroke();
+            }
+            //Store latest pointer
+            lastPt = { x: pointX, y: pointY };
+        }
+
+        function getOffset(obj) {
+            var offsetLeft = 0;
+            var offsetTop = 0;
+
+            while (obj) {
+                offsetLeft += obj.offsetLeft;
+                offsetTop += obj.offsetTop;
+                obj = obj.offsetParent;
+            }
+
+            return { left: offsetLeft, top: offsetTop };
+        }
+
+        function endPointer(e) {
+            //Stop tracking the pointermove (and mousemove) events
+            canvas.removeEventListener("pointermove", draw, false);
+            canvas.removeEventListener("mousemove", draw, false);
+
+            //Set last point to null to end our pointer path
+            lastPt = null;
+        }
+
+    </script>
+</head>
+
+<body onload="init()">
+    <div id="container">
+        <div id="header">
+            <h1 id="canvas-title">Canvas Drawing</h1>
+        </div>
+        <canvas id="mycanvas"></canvas>
+        <div id="controls">
+            <button onclick="sendCanvasToBackend()">Save Canvas</button>
+
+        </div>
+    </div>
+</body>
+
+</html>

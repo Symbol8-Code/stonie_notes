@@ -1,0 +1,92 @@
+<html>
+      <head>
+        <title>STonIE Note - Canvas</title>
+        <style>
+          body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+          }
+          #container {
+            display: flex;
+            height: 500px;
+            width: 500px;
+          }
+          #mycanvas {
+            flex-grow: 1;
+            height: 100%;
+            touch-action: none;
+            border: 1px solid black;
+          }
+          #controls {
+            width: 200px;
+            background-color: #f0f0f0;
+            padding: 10px;
+            box-sizing: border-box;
+          }
+        </style>
+
+        <script type='text/javascript'>
+            function over_handler(event) {
+                //console.log("over_handler: ", event);
+            }
+            function enter_handler(event) {
+                //console.log("enter_handler: ", event);
+            }
+            function down_handler(event)  {
+                //console.log("down_handler: ", event);
+
+                console.log("tiltX: " + event.tiltX + ", tiltY: " + event.tiltY )
+            }
+            function move_handler(event)  {
+                //console.log("move_handler: ", event);
+            }
+            function up_handler(event) {
+                //console.log("up_handler: ", event);
+            }
+            function cancel_handler(event) {
+                //console.log("cancel_handler: ", event);
+            }
+            function out_handler(event) {
+                //console.log("out_handler: ", event);
+            }
+            function leave_handler(event) {
+                //console.log("leave_handler: ", event);
+            }
+            function rawupdate_handler(event) {
+                //console.log("rawupdate_handler: ", event);
+            }
+            function gotcapture_handler(event) {
+                //console.log("gotcapture_handler: ", event);
+            }
+            function lostcapture_handler(event){
+                //console.log("lostcapture_handler: ", event);
+            }
+
+            function init() {
+            const el = document.getElementById("target");
+                // Register pointer event handlers
+                el.onpointerover = over_handler;
+                el.onpointerenter = enter_handler;
+                el.onpointerdown = down_handler;
+                el.onpointermove = move_handler;
+                el.onpointerup = up_handler;
+                el.onpointercancel = cancel_handler;
+                el.onpointerout = out_handler;
+                el.onpointerleave = leave_handler;
+                el.onpointerrawupdate = rawupdate_handler;
+                el.ongotpointercapture = gotcapture_handler;
+                el.onlostpointercapture = lostcapture_handler;
+            }
+
+            document.addEventListener("DOMContentLoaded", init);
+
+        </script>
+
+    </head>
+    <body>
+        <div id="target">Touch me…</div>
+    </body>
+
+</html>

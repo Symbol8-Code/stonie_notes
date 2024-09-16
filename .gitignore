@@ -1,3 +1,6 @@
 /node_modules
-*.png
+
 .env
+/saved_canvases/*.json
+/saved_canvases/*.txt
+/saved_canvases/*.png

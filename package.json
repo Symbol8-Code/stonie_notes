@@ -1,6 +1,8 @@
 {
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev:client": "npm run dev --prefix client",
+    "build:client": "npm run build --prefix client"
   },
   "name": "stonie-notes",
   "version": "1.0.0",

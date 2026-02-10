@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { Sidebar } from '@/components/Sidebar'
+import { FloatingActionButton } from '@/components/FloatingActionButton'
 import { InboxPage } from '@/pages/InboxPage'
 import { BoardsPage } from '@/pages/BoardsPage'
 import { CanvasesPage } from '@/pages/CanvasesPage'
@@ -10,15 +11,20 @@ import './styles/app.css'
 
 /**
  * Root app shell with responsive layout.
- * Desktop: sidebar + main content area.
+ * Desktop: persistent sidebar + main content + optional detail panel.
  * Tablet: collapsible sidebar + main content.
- * Phone: bottom nav + single-pane content.
+ * Phone: single-pane content + bottom nav + FAB.
  * See DESIGN.md Section 3.6 (Responsive Layout).
  */
 function App() {
   const [activePage, setActivePage] = useState('inbox')
   const inputMode = useInputMode()
   const device = useDeviceType()
+
+  const handleQuickCapture = useCallback(() => {
+    // TODO: Open quick capture modal (Issue #19)
+    setActivePage('inbox')
+  }, [])
 
   const renderPage = () => {
     switch (activePage) {
@@ -48,6 +54,8 @@ function App() {
       <main className="main-content">
         {renderPage()}
       </main>
+
+      <FloatingActionButton onClick={handleQuickCapture} />
 
       {device === 'phone' && (
         <Sidebar

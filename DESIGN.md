@@ -2,32 +2,35 @@
 
 ## 1. Vision
 
-STonIE Notes evolves from a canvas-to-structured-data prototype into a **unified workspace** that replaces the fragmented toolset of Trello, Google Keep, and OneNote with a single pen-first, AI-powered application. The core thesis: handwritten and sketched input is the fastest way to capture ideas, and AI should do the heavy lifting of organizing, linking, and interpreting that input into actionable structured data.
+STonIE Notes evolves from a canvas-to-structured-data prototype into a **unified workspace** that replaces the fragmented toolset of Trello, Google Keep, and OneNote with a single, AI-powered application that adapts to however you work. The core thesis: the best input mode depends on context — typing on your phone while in line, scribbling with a pen during a meeting, keyboard shortcuts on your laptop — and the app should treat all of them as first-class citizens. AI does the heavy lifting of organizing, linking, and interpreting input from any source into actionable structured data.
 
-**One-line pitch**: A pen-first workspace where scribbled ideas automatically become searchable notes, linked tasks, and connected workflows — accessible on every device.
+**One-line pitch**: An input-adaptive workspace where typed notes, scribbled ideas, photos, and voice all flow into the same searchable, connected system — use whatever input fits the moment, on every device.
 
 ### 1.1 Problems with the Current Multi-Tool Workflow
 
 | Tool | Strengths | Pain Points |
 |------|-----------|-------------|
-| **Trello** | Shared boards, real-time sync, accessible everywhere | Keyboard-heavy, no pen input, rigid board/list/card structure |
+| **Trello** | Shared boards, real-time sync, accessible everywhere | Keyboard-only, no pen input, rigid board/list/card structure |
 | **Google Keep** | Quick capture on phone, accessible anywhere | Photos and notes are disconnected, no annotation on photos, no deep organization |
 | **OneNote** | Freeform pen scribbling, spatial layout | Poor cross-device sync, handwriting not searchable, notes scattered and unlinked, ideas fragmented across pages |
 
 **Cross-tool problems:**
 - Context scattered across three apps with no cross-referencing
 - Switching between tools breaks flow
+- Each tool only excels at one input mode — Trello is keyboard-only, OneNote is pen-only, Keep is phone-typing-only. No single tool handles all input modes well.
 - No integration with developer workflows (GitHub, CI/CD, Claude Code)
 - Handwritten content is a dead end — never converted to structured, searchable, actionable data
 
 ### 1.2 Success Criteria
 
 1. A user can scribble a meeting note on a tablet, and within seconds it becomes searchable text with extracted action items
-2. A user can sketch a workflow diagram, and the system extracts tasks and creates trackable items
-3. Shared boards update in real-time across family members / team members on any device
-4. Photo annotations directly overlay text and drawings on images
-5. A developer can link notes to GitHub issues, trigger Claude Code sessions, and track release milestones — all from the same workspace
-6. The primary input mode on pen-capable devices is handwriting, with keyboard as secondary
+2. A user can type a quick note on their phone while walking, and it lands in the same workspace as their tablet sketches
+3. A user can sketch a workflow diagram, and the system extracts tasks and creates trackable items
+4. Shared boards update in real-time across family members / team members on any device
+5. Photo annotations directly overlay text and drawings on images
+6. A developer can link notes to GitHub issues, trigger Claude Code sessions, and track release milestones — all from the same workspace
+7. Switching between pen, keyboard, voice, and camera within a single note or card feels seamless — not a mode change, just a different way to add content
+8. The app adapts its UI to the active input method and device, surfacing the right tools without requiring manual configuration
 
 ---
 
@@ -109,17 +112,54 @@ This directly solves the Google Keep limitation where photos and notes are disco
 
 ## 3. Device & Input Strategy
 
-### 3.1 Device Matrix
+### 3.1 Multi-Modal Input Philosophy
 
-| Device | Primary Input | Secondary Input | Key Use Cases |
-|--------|--------------|-----------------|---------------|
-| **Tablet + Pen** | Pen (stylus) | On-screen keyboard | Meeting notes, sketching ideas, diagramming, photo annotation |
-| **Phone** | On-screen keyboard | Finger drawing, camera, voice | Quick capture, checklist management, photo + annotate, voice memos |
-| **Computer** | Physical keyboard | Mouse/trackpad | Detailed editing, board management, integrations, review & organize |
+The right input mode depends entirely on context — not on the app's preference. STonIE treats **every input mode as a first-class citizen** and adapts its interface to match what the user is doing right now.
 
-### 3.2 Pen Input Architecture
+**Principle: The app follows the user's input, not the other way around.**
 
-Pen input is a first-class citizen, not an afterthought. The system captures:
+When a user picks up a stylus, pen tools surface automatically. When they tap a text field or open a keyboard, typing tools appear. When they long-press a photo, annotation options emerge. There is no "pen mode" vs. "keyboard mode" — the app detects the active input and adapts in real time.
+
+| Input Mode | When it Shines | Example Scenario |
+|------------|---------------|------------------|
+| **Keyboard (physical)** | Structured writing, detailed edits, search, board management | At a desk writing up meeting notes after the fact, managing a sprint board, composing detailed card descriptions |
+| **Keyboard (on-screen)** | Quick text capture on mobile, checklists, short updates | On a bus adding items to a grocery list, replying to a card comment, quick thought dump |
+| **Pen / Stylus** | Visual thinking, meeting sketches, diagrams, spatial layout, annotations | In a meeting scribbling architecture ideas, annotating a screenshot, sketching a UI wireframe |
+| **Camera + Annotation** | Capturing physical artifacts with context | Photographing a whiteboard and circling key items, snapping a product label and adding notes |
+| **Voice** | Hands-busy capture, long-form dictation | Driving and capturing a thought, dictating meeting minutes while hands are on the keyboard |
+| **Finger drawing** | Lightweight sketching on phone, quick highlights | Circling something in a photo, rough diagram on the go |
+
+### 3.2 Device Matrix
+
+Each device has natural strengths. The app optimizes for these rather than forcing a single interaction model.
+
+| Device | Natural Inputs | Optimized Experience |
+|--------|---------------|---------------------|
+| **Phone** | On-screen keyboard, camera, voice, finger | Fast text capture and checklists via keyboard. Camera for photos with finger annotation. Voice memos. Feed-style card browsing. Compact quick-capture widget. |
+| **Tablet + Pen** | Stylus, on-screen keyboard, camera | Full Canvas experience for pen scribbling and diagramming. Keyboard available for text blocks, search, and card details. Split-screen for Canvas + Board side-by-side. |
+| **Tablet (no pen)** | On-screen keyboard, finger, camera | Board management, card editing, finger-based canvas sketching with larger touch targets. |
+| **Computer** | Physical keyboard, mouse/trackpad | Keyboard-driven workflows: board management, detailed editing, search, integrations config. Multi-pane layout. Full keyboard shortcut set. Canvas interaction via mouse for positioning and layout. |
+
+### 3.3 Seamless Input Switching
+
+A single Card or Canvas can contain content from multiple input modes, created at different times:
+
+```
+Card: "Sprint 14 Planning"
+  |
+  +-- [keyboard] Typed title and description
+  +-- [pen] Hand-drawn architecture sketch added during meeting
+  +-- [photo] Whiteboard photo snapped after meeting
+  +-- [pen] Annotations drawn on the whiteboard photo
+  +-- [keyboard] Action items typed up afterward at desk
+  +-- [voice] Voice memo appended while walking to next meeting
+```
+
+All of this lives in one Card. The system renders each content block with its native fidelity (ink strokes stay as strokes, typed text stays as text, photos stay as images) while the AI layer unifies them into a single searchable, structured representation.
+
+### 3.4 Pen Input Architecture
+
+Pen input requires richer data capture than keyboard or touch. The system captures:
 
 | Data Point | Purpose |
 |------------|---------|
@@ -140,7 +180,41 @@ Pen input is a first-class citizen, not an afterthought. The system captures:
 | **Annotate** | Ink overlaid on photos or existing content |
 | **Command** | Gesture-based shortcuts (e.g., circle an item and flick right to move to "Done" lane) |
 
-### 3.3 Responsive Layout
+### 3.5 Keyboard Input Architecture
+
+Keyboard input is equally critical and gets dedicated design attention:
+
+**Rich text editing**: Cards support Markdown-style formatting via keyboard shortcuts (bold, headers, lists, code blocks). No mouse required for common formatting.
+
+**Keyboard shortcuts** (computer and external keyboards on tablets):
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl/Cmd + N` | New Card (opens in typing mode) |
+| `Ctrl/Cmd + Shift + N` | New Canvas |
+| `Ctrl/Cmd + K` | Quick search / command palette |
+| `Ctrl/Cmd + Enter` | Save and close Card |
+| `Tab` / `Shift+Tab` | Indent / outdent in checklists |
+| `/` in a Card body | Slash commands (e.g., `/checklist`, `/photo`, `/voice`, `/tag`) |
+| Arrow keys on Boards | Navigate between Cards and Lanes |
+| `Enter` on a Board Lane | Quick-add Card by typing |
+
+**Slash commands**: Typing `/` in a Card body opens an inline command palette — similar to Notion or Slack. This lets keyboard users access every feature without reaching for a mouse:
+- `/checklist` — insert a checklist
+- `/photo` — attach a photo
+- `/canvas` — embed a mini-canvas for quick sketching
+- `/link [card-name]` — link to another Card
+- `/tag [tag-name]` — add a tag
+- `/github [repo/issue]` — link to a GitHub issue
+- `/due [date]` — set a due date
+
+**Phone keyboard optimizations**:
+- Auto-expanding text area (no tiny fixed input boxes)
+- Smart suggestions bar above the keyboard (recent tags, common actions)
+- Swipe gestures on cards in list view (swipe right = done, swipe left = archive)
+- Quick-entry mode: open app -> start typing immediately, Card created on first keystroke
+
+### 3.6 Responsive Layout
 
 The UI adapts, not just scales:
 
@@ -160,10 +234,11 @@ The UI adapts, not just scales:
 
 **Goal**: Zero-friction idea capture from any device in under 3 seconds.
 
-**Entry points**:
-- **Phone**: Persistent floating action button (FAB) or notification shade shortcut
-- **Tablet**: Pen-triggered quick note (pull from screen edge gesture, configurable)
-- **Computer**: Global keyboard shortcut or system tray icon
+**Entry points** (each device gets the fastest path for its natural input):
+- **Phone**: Persistent floating action button (FAB) or notification shade shortcut. Opens directly into typing mode with keyboard raised. Camera shortcut in the FAB menu for photo capture.
+- **Tablet with pen**: Pull from screen edge with pen to open a quick scribble surface. Or tap the FAB to open a keyboard-ready text card.
+- **Tablet without pen**: FAB opens into keyboard-ready text card. Long-press FAB for photo or voice options.
+- **Computer**: Global keyboard shortcut (`Ctrl/Cmd + Shift + S`) opens a capture popup — cursor is already in the text field. Type immediately. Or use system tray icon for mouse-driven access.
 - **All devices**: Share sheet / share intent integration (share links, images, text from other apps)
 
 **Capture types**:
@@ -195,11 +270,18 @@ Trigger capture -> Select type (or auto-detect) -> Input content
 
 **Key capabilities**:
 - Real-time sync across all collaborators (operational transform or CRDT-based)
-- Drag-and-drop Cards between lanes
-- Cards can be created by pen (scribble a card title, it becomes a Card) or keyboard
+- Drag-and-drop Cards between lanes (touch, pen, or mouse)
+- Cards can be created by any input: type a title, scribble a title, or voice-dictate one
 - Filtering and sorting by tags, assignee, due date, source
 - Board-level permissions: owner, editor, viewer
 - Board templates for common workflows (e.g., "Family Grocery", "Sprint Board", "Release Checklist")
+
+**Keyboard interaction on Boards**:
+- Press `Enter` on a Lane header to add a Card — start typing the title immediately
+- Arrow keys to navigate between Cards and Lanes
+- `Ctrl/Cmd + D` to mark focused Card as done
+- `/` in a Card to open slash command palette for rich content
+- Drag-and-drop via mouse on desktop; long-press and drag on touch devices
 
 **Pen interaction on Boards**:
 - Scribble in the "add card" area of a lane to create a Card from handwriting
@@ -213,15 +295,17 @@ Trigger capture -> Select type (or auto-detect) -> Input content
 
 **Canvas features**:
 - Infinite pan/zoom surface
-- Mixed content: ink strokes, typed text blocks, images, embedded Cards, shapes
-- Layers: background, ink, annotations, AI overlay (bounding boxes, labels)
+- **Mixed content on the same surface**: ink strokes, typed text blocks, images, embedded Cards, shapes — users switch freely between pen and keyboard without changing modes
+- Layers: background, ink, text, annotations, AI overlay (bounding boxes, labels)
 - Sections/pages for organization within a Canvas (like OneNote sections)
+- **Typed text blocks**: Double-tap or double-click anywhere on the Canvas to place a text cursor and start typing. Text blocks are positioned spatially like ink but rendered as crisp, editable, searchable text. Ideal for labeling diagrams, adding structured notes alongside sketches, or working on a computer without a pen.
+- **Mixed-input workflows**: Sketch a diagram with pen, then add typed labels and descriptions. Or type an outline on a laptop, then annotate it with pen on a tablet later. Both inputs coexist naturally on the same Canvas.
 - AI processing pipeline (extended from current prototype):
   1. Real-time handwriting recognition (streaming, not batch)
   2. Region detection and segmentation
   3. Relationship extraction between regions
   4. Auto-generation of Cards from detected regions
-  5. Searchable text index of all handwritten content
+  5. Searchable text index of all content (handwritten and typed)
 
 **Canvas-to-Board bridge**:
 - Select a region on a Canvas -> "Send to Board" -> becomes a Card on a specified Board/Lane
@@ -689,23 +773,27 @@ WS     /ws/v1/canvases/:id             Canvas collaboration channel
 
 ## 9. Phased Delivery Roadmap
 
-### Phase 1: Foundation — "Better OneNote" (MVP)
+### Phase 1: Foundation — "Capture Anything" (MVP)
 
-**Goal**: Replace OneNote with a pen-first canvas app that makes handwritten notes searchable and organized.
+**Goal**: A single app that handles quick typed notes (replacing Keep), pen canvases (replacing OneNote), and makes all content searchable — regardless of how it was created.
 
 **Deliverables**:
-- Web app (PWA) with Canvas surface supporting pen and keyboard input
-- Handwriting recognition with searchable text extraction (extend existing prototype)
-- Basic Card model: create from canvas regions, keyboard, or photos
+- Web app (PWA) with responsive design for tablet, phone, and desktop
+- **Typed notes**: Full keyboard-driven Card creation and editing with rich text (Markdown), working well on phone and computer
+- **Canvas surface**: Pen and touch drawing with handwriting recognition, extending the existing prototype
+- **Mixed-mode Cards**: Cards that can contain both typed text and pen strokes in a single view
+- Photo capture with pen/finger annotation overlay
+- Basic tagging and search (full-text on typed content and recognized handwriting)
+- Quick capture optimized per device: keyboard-first on phone/computer, pen-first on tablet
+- Slash commands for keyboard power users
 - Local storage with cloud sync for a single user
-- Photo capture with pen annotation overlay
-- Basic tagging and search (full-text on recognized text and typed content)
-- Responsive design for tablet, phone, and desktop
 
 **Foundation work**:
 - Set up React + TypeScript web app with Canvas rendering engine
 - Implement stroke capture and storage (protobuf format)
+- Implement rich text editor for typed content (Cards and text blocks on Canvas)
 - Integrate on-device handwriting recognition model
+- Build input-mode detection (auto-switch UI based on pointer type)
 - Build Card CRUD API and PostgreSQL schema
 - Set up S3-compatible blob storage for images and stroke data
 
@@ -719,6 +807,7 @@ WS     /ws/v1/canvases/:id             Canvas collaboration channel
 - Multi-user: invitations, roles, permissions
 - Board templates (Kanban, grocery list, etc.)
 - Activity feed and notifications
+- Keyboard shortcuts for board navigation and card management
 - Pen gestures for Board interaction (scribble to create, strikethrough to complete)
 - Workspace model for separating personal/family/work contexts
 
@@ -766,13 +855,15 @@ The existing STonIE Notes prototype validates the core technical hypothesis: **A
 
 | Current Prototype | Unified App |
 |---|---|
-| Single HTML5 Canvas page | Multi-canvas Workspace with infinite surfaces |
-| Flat image submission (base64 PNG) | Stroke-level data capture (preserving full fidelity) |
+| Single HTML5 Canvas page | Multi-canvas Workspace with infinite surfaces + keyboard-driven Cards and Boards |
+| Canvas-only input (pen/mouse drawing) | Multi-modal input: pen, keyboard, voice, camera — all producing the same Card objects |
+| Flat image submission (base64 PNG) | Stroke-level data capture (preserving full fidelity) + rich text for typed content |
 | Batch GPT-4o processing after submit | Streaming on-device recognition + server-side deep analysis |
 | File system output (PNG, JSON) | Persistent database with Cards, Boards, Canvases |
 | Single user, no auth | Multi-user with real-time collaboration |
-| No search | Full-text + semantic search across all content types |
+| No search | Full-text + semantic search across all content types and input modes |
 | No integrations | GitHub, Claude Code, Calendar, Webhooks |
+| Desktop browser only | Responsive across phone (keyboard-optimized), tablet (pen+keyboard), computer (keyboard+mouse) |
 
 The prototype's `canvasProcessor.js` worker becomes the starting point for the AI Pipeline Service. The region detection, item extraction, and relationship mapping logic is preserved and extended with streaming handwriting recognition and additional extraction types (action items, checklists, tags).
 
@@ -780,7 +871,7 @@ The prototype's `canvasProcessor.js` worker becomes the starting point for the A
 
 ## 11. Open Questions for Review
 
-1. **Native vs. PWA priority**: Should Phase 1 target a PWA for universal access, or a native iPad app for best pen experience? The design assumes PWA-first for faster iteration, but native PencilKit offers significantly better ink rendering.
+1. **Native vs. PWA priority**: Should Phase 1 target a PWA for universal access, or a native iPad app for best pen experience? The design assumes PWA-first for faster iteration, but native PencilKit offers significantly better ink rendering. A PWA offers faster iteration on the keyboard/typing experience across all devices.
 
 2. **AI provider strategy**: The prototype uses OpenAI GPT-4o. Should the unified app standardize on Anthropic Claude for consistency with the Claude Code integration? Or support multiple providers?
 
@@ -793,3 +884,7 @@ The prototype's `canvasProcessor.js` worker becomes the starting point for the A
 6. **Handwriting recognition model**: Use a commercial API (Apple's on-device, Google ML Kit) for Phase 1, or invest in training a custom model for better accuracy on mixed diagrams + text?
 
 7. **Collaboration granularity**: Should real-time collaboration work at the Canvas level (everyone sees all strokes live, like a shared whiteboard) or at the Card level (Cards sync, but individual canvas work is private until shared)?
+
+8. **Input mode defaults**: When a user opens the app on a tablet, should it default to Canvas (pen-ready) or Board/Card list (keyboard-ready)? Options: (a) always open to the last-used view, (b) detect if a stylus is connected and adapt, (c) let the user configure their default per device.
+
+9. **Rich text editor choice**: For the keyboard-driven typing experience, should we use an existing editor framework (ProseMirror, TipTap, Lexical) or build a custom one? Existing frameworks speed up Phase 1 but may complicate Canvas text block integration.

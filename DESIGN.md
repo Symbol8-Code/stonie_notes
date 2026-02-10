@@ -182,22 +182,27 @@ Pen input requires richer data capture than keyboard or touch. The system captur
 
 ### 3.5 Keyboard Input Architecture
 
-Keyboard input is equally critical and gets dedicated design attention:
+Keyboard input is equally critical and gets dedicated design attention.
 
-**Rich text editing**: Cards support Markdown-style formatting via keyboard shortcuts (bold, headers, lists, code blocks). No mouse required for common formatting.
+**Browser shortcut constraint**: Since the app runs in a browser, all keyboard shortcuts must avoid colliding with standard browser bindings (`Ctrl/Cmd + N`, `Ctrl/Cmd + T`, `Ctrl/Cmd + W`, `Ctrl/Cmd + D`, `Ctrl/Cmd + K`, `Ctrl/Cmd + Shift + N`, etc.). The app uses `Alt`-based combinations and browser-safe `Ctrl/Cmd` pairs that are not claimed by browsers. Shortcuts are also user-configurable via a settings panel.
+
+**Rich text editing**: Cards support Markdown-style formatting via keyboard shortcuts (bold, headers, lists, code blocks). No mouse required for common formatting. Standard formatting shortcuts like `Ctrl/Cmd + B` (bold) and `Ctrl/Cmd + I` (italic) are safe inside focused text editors where the browser does not intercept them.
 
 **Keyboard shortcuts** (computer and external keyboards on tablets):
 
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl/Cmd + N` | New Card (opens in typing mode) |
-| `Ctrl/Cmd + Shift + N` | New Canvas |
-| `Ctrl/Cmd + K` | Quick search / command palette |
-| `Ctrl/Cmd + Enter` | Save and close Card |
-| `Tab` / `Shift+Tab` | Indent / outdent in checklists |
-| `/` in a Card body | Slash commands (e.g., `/checklist`, `/photo`, `/voice`, `/tag`) |
-| Arrow keys on Boards | Navigate between Cards and Lanes |
-| `Enter` on a Board Lane | Quick-add Card by typing |
+| Shortcut | Action | Notes |
+|----------|--------|-------|
+| `Alt + N` | New Card (opens in typing mode) | Avoids `Ctrl+N` (browser new window) |
+| `Alt + Shift + N` | New Canvas | Avoids `Ctrl+Shift+N` (browser incognito) |
+| `Ctrl/Cmd + /` | Quick search / command palette | Browser-safe; used by GitHub, VS Code web |
+| `Ctrl/Cmd + Enter` | Save and close Card | Browser-safe in text context |
+| `Tab` / `Shift+Tab` | Indent / outdent in checklists | Standard within focused editors |
+| `/` in a Card body | Slash commands (e.g., `/checklist`, `/photo`, `/voice`, `/tag`) | Only active inside Card editor |
+| Arrow keys on Boards | Navigate between Cards and Lanes | Standard when Board is focused |
+| `Enter` on a Board Lane | Quick-add Card by typing | Standard when Lane is focused |
+| `Alt + D` | Mark focused Card as done | Avoids `Ctrl+D` (browser bookmark) |
+| `Escape` | Close current panel / deselect | Standard in web apps |
+| `Alt + 1-9` | Switch between open Boards/Canvases | Tab-style navigation |
 
 **Slash commands**: Typing `/` in a Card body opens an inline command palette — similar to Notion or Slack. This lets keyboard users access every feature without reaching for a mouse:
 - `/checklist` — insert a checklist
@@ -238,7 +243,7 @@ The UI adapts, not just scales:
 - **Phone**: Persistent floating action button (FAB) or notification shade shortcut. Opens directly into typing mode with keyboard raised. Camera shortcut in the FAB menu for photo capture.
 - **Tablet with pen**: Pull from screen edge with pen to open a quick scribble surface. Or tap the FAB to open a keyboard-ready text card.
 - **Tablet without pen**: FAB opens into keyboard-ready text card. Long-press FAB for photo or voice options.
-- **Computer**: Global keyboard shortcut (`Ctrl/Cmd + Shift + S`) opens a capture popup — cursor is already in the text field. Type immediately. Or use system tray icon for mouse-driven access.
+- **Computer**: Keyboard shortcut (`Alt + Q`) opens a capture popup — cursor is already in the text field. Type immediately. Or use system tray icon for mouse-driven access. (Avoids `Ctrl+Shift+S` which triggers browser Save As.)
 - **All devices**: Share sheet / share intent integration (share links, images, text from other apps)
 
 **Capture types**:
@@ -279,7 +284,7 @@ Trigger capture -> Select type (or auto-detect) -> Input content
 **Keyboard interaction on Boards**:
 - Press `Enter` on a Lane header to add a Card — start typing the title immediately
 - Arrow keys to navigate between Cards and Lanes
-- `Ctrl/Cmd + D` to mark focused Card as done
+- `Alt + D` to mark focused Card as done
 - `/` in a Card to open slash command palette for rich content
 - Drag-and-drop via mouse on desktop; long-press and drag on touch devices
 

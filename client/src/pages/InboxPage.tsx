@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { CardEditor } from '@/components/CardEditor'
-import { listCards, createCard, archiveCard } from '@/services/api'
+import type { CardEditorSaveData } from '@/components/CardEditor'
+import { MarkdownPreview } from '@/components/MarkdownPreview'
+import { listCards, createCard, updateCard, archiveCard } from '@/services/api'
 import type { Card, InputMode } from '@/types/models'
 
 interface InboxPageProps {
@@ -13,7 +15,7 @@ interface InboxPageProps {
 
 /**
  * Inbox: default landing zone for quick-captured items.
- * Lists cards with status 'open' and allows creating new ones.
+ * Lists cards with status 'open' and allows creating and editing.
  * See DESIGN.md Section 4.4 (Search & Organization — Inbox).
  */
 export function InboxPage({ startCreating = false, onCreatingDone, inputMode }: InboxPageProps) {
@@ -21,6 +23,7 @@ export function InboxPage({ startCreating = false, onCreatingDone, inputMode }: 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const fetchCards = useCallback(async () => {
     try {
@@ -46,7 +49,7 @@ export function InboxPage({ startCreating = false, onCreatingDone, inputMode }: 
   }, [startCreating, creating])
 
   const handleCreate = useCallback(
-    async (data: { title: string; bodyText: string; source: 'keyboard' | 'pen'; imageDataUrl?: string; titleImageDataUrl?: string }) => {
+    async (data: CardEditorSaveData) => {
       try {
         // For pen notes, store title image in title field and body image in bodyText
         const card = await createCard({
@@ -64,10 +67,48 @@ export function InboxPage({ startCreating = false, onCreatingDone, inputMode }: 
     [onCreatingDone],
   )
 
-  const handleCancel = useCallback(() => {
+  const handleCancelCreate = useCallback(() => {
     setCreating(false)
     onCreatingDone?.()
   }, [onCreatingDone])
+
+  const handleEdit = useCallback(
+    async (data: CardEditorSaveData) => {
+      if (!editingId) return
+      try {
+        const updated = await updateCard(editingId, {
+          title: data.titleImageDataUrl || data.title,
+          bodyText: data.imageDataUrl || data.bodyText,
+          source: data.source,
+        })
+        setCards((prev) => prev.map((c) => (c.id === editingId ? updated : c)))
+        setEditingId(null)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to update card')
+      }
+    },
+    [editingId],
+  )
+
+  const handleAutoSave = useCallback(
+    async (data: CardEditorSaveData) => {
+      if (!editingId) return
+      try {
+        const updated = await updateCard(editingId, {
+          title: data.title,
+          bodyText: data.bodyText,
+        })
+        setCards((prev) => prev.map((c) => (c.id === editingId ? updated : c)))
+      } catch {
+        // Silently fail auto-save — user can still manually save
+      }
+    },
+    [editingId],
+  )
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingId(null)
+  }, [])
 
   const handleArchive = useCallback(async (id: string) => {
     try {
@@ -94,7 +135,7 @@ export function InboxPage({ startCreating = false, onCreatingDone, inputMode }: 
       {creating && (
         <CardEditor
           onSave={handleCreate}
-          onCancel={handleCancel}
+          onCancel={handleCancelCreate}
           inputMode={inputMode}
         />
       )}
@@ -109,41 +150,68 @@ export function InboxPage({ startCreating = false, onCreatingDone, inputMode }: 
 
       {cards.length > 0 && (
         <div className="card-list">
-          {cards.map((card) => (
-            <div key={card.id} className="card-item">
-              <div className="card-item-content">
-                {card.title?.startsWith('data:image/') ? (
-                  <img
-                    className="card-item-title-drawing"
-                    src={card.title}
-                    alt="Pen title"
-                  />
-                ) : (
-                  <h3 className="card-item-title">{card.title || 'Untitled'}</h3>
-                )}
-                {card.source === 'pen' && card.bodyText?.startsWith('data:image/') ? (
-                  <img
-                    className="card-item-drawing"
-                    src={card.bodyText}
-                    alt="Pen drawing"
-                  />
-                ) : card.bodyText ? (
-                  <p className="card-item-body">{card.bodyText}</p>
-                ) : null}
-                <span className="card-item-meta">
-                  {card.source === 'pen' ? 'Pen' : 'Keyboard'} &middot; {new Date(card.createdAt).toLocaleDateString()}
-                </span>
-              </div>
-              <button
-                className="card-item-archive"
-                onClick={() => handleArchive(card.id)}
-                aria-label={`Archive "${card.title}"`}
-                title="Archive"
+          {cards.map((card) =>
+            editingId === card.id ? (
+              <CardEditor
+                key={card.id}
+                card={card}
+                onSave={handleEdit}
+                onCancel={handleCancelEdit}
+                onAutoSave={handleAutoSave}
+                inputMode={inputMode}
+              />
+            ) : (
+              <div
+                key={card.id}
+                className="card-item"
+                onClick={() => setEditingId(card.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') setEditingId(card.id)
+                }}
               >
-                &times;
-              </button>
-            </div>
-          ))}
+                <div className="card-item-content">
+                  {card.title?.startsWith('data:image/') ? (
+                    <img
+                      className="card-item-title-drawing"
+                      src={card.title}
+                      alt="Pen title"
+                    />
+                  ) : (
+                    <h3 className="card-item-title">{card.title || 'Untitled'}</h3>
+                  )}
+                  {card.source === 'pen' && card.bodyText?.startsWith('data:image/') ? (
+                    <img
+                      className="card-item-drawing"
+                      src={card.bodyText}
+                      alt="Pen drawing"
+                    />
+                  ) : card.bodyText ? (
+                    <MarkdownPreview
+                      content={card.bodyText}
+                      className="card-item-body"
+                      maxLines={3}
+                    />
+                  ) : null}
+                  <span className="card-item-meta">
+                    {card.source === 'pen' ? 'Pen' : 'Keyboard'} &middot; {new Date(card.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+                <button
+                  className="card-item-archive"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleArchive(card.id)
+                  }}
+                  aria-label={`Archive "${card.title}"`}
+                  title="Archive"
+                >
+                  &times;
+                </button>
+              </div>
+            ),
+          )}
         </div>
       )}
     </div>

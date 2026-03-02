@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { Sidebar } from '@/components/Sidebar'
 import { FloatingActionButton } from '@/components/FloatingActionButton'
 import { InboxPage } from '@/pages/InboxPage'
@@ -7,6 +7,7 @@ import { CanvasesPage } from '@/pages/CanvasesPage'
 import { SearchPage } from '@/pages/SearchPage'
 import { useInputMode } from '@/hooks/useInputMode'
 import { useDeviceType } from '@/hooks/useMediaQuery'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import './styles/app.css'
 
 /**
@@ -18,18 +19,39 @@ import './styles/app.css'
  */
 function App() {
   const [activePage, setActivePage] = useState('inbox')
+  const [creatingNote, setCreatingNote] = useState(false)
   const inputMode = useInputMode()
   const device = useDeviceType()
 
-  const handleQuickCapture = useCallback(() => {
-    // TODO: Open quick capture modal (Issue #19)
+  const startNewNote = useCallback(() => {
     setActivePage('inbox')
+    setCreatingNote(true)
   }, [])
+
+  const handleCreatingDone = useCallback(() => {
+    setCreatingNote(false)
+  }, [])
+
+  const shortcuts = useMemo(
+    () => ({
+      'alt+n': startNewNote,
+      'ctrl+/': () => setActivePage('search'),
+    }),
+    [startNewNote],
+  )
+
+  useKeyboardShortcuts(shortcuts)
 
   const renderPage = () => {
     switch (activePage) {
       case 'inbox':
-        return <InboxPage />
+        return (
+          <InboxPage
+            startCreating={creatingNote}
+            onCreatingDone={handleCreatingDone}
+            inputMode={inputMode}
+          />
+        )
       case 'boards':
         return <BoardsPage />
       case 'canvases':
@@ -37,7 +59,13 @@ function App() {
       case 'search':
         return <SearchPage />
       default:
-        return <InboxPage />
+        return (
+          <InboxPage
+            startCreating={creatingNote}
+            onCreatingDone={handleCreatingDone}
+            inputMode={inputMode}
+          />
+        )
     }
   }
 
@@ -55,7 +83,7 @@ function App() {
         {renderPage()}
       </main>
 
-      <FloatingActionButton onClick={handleQuickCapture} />
+      <FloatingActionButton onClick={startNewNote} />
 
       {device === 'phone' && (
         <Sidebar

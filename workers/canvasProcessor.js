@@ -1,4 +1,6 @@
-require('dotenv').config(); 
+const dotenv = require('dotenv');
+const dotenvExpand = require('dotenv-expand');
+dotenvExpand.expand(dotenv.config());
 const { parentPort } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');

@@ -15,9 +15,20 @@ const canvasStore = {}
 // Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Serve built React app if it exists (production)
+const clientDist = path.join(__dirname, 'client', 'dist');
+if (fs.existsSync(clientDist)) {
+  app.use('/app', express.static(clientDist));
+}
+
 // Middleware to parse JSON bodies
 app.use(bodyParser.json({ limit: '10mb' }));
 
+// ── New v1 API routes (DESIGN.md Section 7.5) ────
+const cardsRouter = require('./routes/cards');
+const canvasesRouter = require('./routes/canvases');
+app.use('/api/v1/cards', cardsRouter);
+app.use('/api/v1/canvases', canvasesRouter);
 
 // Route for the home page
 app.get('/', (req, res) => {

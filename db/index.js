@@ -3,7 +3,9 @@
  * Uses Drizzle ORM with node-postgres.
  */
 
-require('dotenv').config();
+const dotenv = require('dotenv');
+const dotenvExpand = require('dotenv-expand');
+dotenvExpand.expand(dotenv.config());
 const { drizzle } = require('drizzle-orm/node-postgres');
 const { Pool } = require('pg');
 const schema = require('./schema');

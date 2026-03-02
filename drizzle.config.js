@@ -1,4 +1,6 @@
-require('dotenv').config();
+const dotenv = require('dotenv');
+const dotenvExpand = require('dotenv-expand');
+dotenvExpand.expand(dotenv.config());
 
 /** @type {import('drizzle-kit').Config} */
 module.exports = {

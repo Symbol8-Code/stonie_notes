@@ -15,7 +15,7 @@ An input-adaptive workspace that replaces the fragmented toolset of Trello, Goog
 ## Prerequisites
 
 - **Node.js** (v18+)
-- **PostgreSQL** (v14+)
+- **Docker** and **Docker Compose** (for the dev database)
 - **OpenAI API key**
 
 ## Getting Started
@@ -41,20 +41,46 @@ Copy the example env file and fill in your values:
 cp .env_example .env
 ```
 
-Edit `.env`:
+Edit `.env` with your values:
 
 ```
 OPENAI_API_KEY=your_openai_api_key
-DATABASE_URL=postgresql://user:password@localhost:5432/stonie_notes
+
+POSTGRES_USER=user
+POSTGRES_PASSWORD=password
+POSTGRES_DB=stonie_notes
+
+DATABASE_URL=postgresql://user:password@localhost:5434/stonie_notes
 ```
 
-### 3. Set up the database
+The `POSTGRES_*` variables are used by both Docker Compose and the application. The `DATABASE_URL` connects to port **5434** (the host-mapped port from Docker Compose).
 
-Create the PostgreSQL database, then push the schema:
+### 3. Start the dev database
+
+Use Docker Compose to run PostgreSQL:
 
 ```bash
-createdb stonie_notes
+docker compose up -d
+```
+
+This starts a Postgres 14 container with data persisted in a Docker volume (`pgdata`). The database is exposed on `localhost:5434`.
+
+Then push the schema:
+
+```bash
 npm run db:push
+```
+
+To stop the database:
+
+```bash
+docker compose down
+```
+
+To stop and remove all data:
+
+```bash
+docker compose down -v
 ```
 
 ### 4. Run the app

@@ -46,7 +46,7 @@ function parseBlocks(bodyText: string, source?: string): ContentBlock[] {
   if (bodyText.startsWith('[')) {
     try {
       const parsed = JSON.parse(bodyText) as ContentBlock[]
-      if (Array.isArray(parsed) && parsed.every((b) => b.type && b.content !== undefined)) {
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((b) => b.type && b.content !== undefined)) {
         return parsed
       }
     } catch {

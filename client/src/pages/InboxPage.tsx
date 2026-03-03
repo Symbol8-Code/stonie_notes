@@ -3,12 +3,44 @@ import { CardEditor } from '@/components/CardEditor'
 import type { CardEditorSaveData } from '@/components/CardEditor'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { listCards, createCard, updateCard, archiveCard } from '@/services/api'
-import type { Card } from '@/types/models'
+import type { Card, ContentBlock } from '@/types/models'
 
 interface InboxPageProps {
   /** When true, immediately open the editor for a new note */
   startCreating?: boolean
   onCreatingDone?: () => void
+}
+
+/**
+ * Parse bodyText into ContentBlock[] for display.
+ * Handles new JSON format, legacy pen data URLs, and legacy plain text.
+ */
+function parseBodyBlocks(bodyText: string, source?: string): ContentBlock[] {
+  if (!bodyText) return []
+
+  // New block-based format (JSON array)
+  if (bodyText.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(bodyText) as ContentBlock[]
+      if (Array.isArray(parsed) && parsed.every((b) => b.type && b.content !== undefined)) {
+        return parsed
+      }
+    } catch {
+      // Fall through
+    }
+  }
+
+  // Legacy pen: entire bodyText is a data URL
+  if (source === 'pen' && bodyText.startsWith('data:image/')) {
+    return [{ id: 'legacy-drawing', type: 'drawing', content: bodyText }]
+  }
+
+  // Legacy keyboard: plain Markdown text
+  if (bodyText.trim()) {
+    return [{ id: 'legacy-text', type: 'text', content: bodyText }]
+  }
+
+  return []
 }
 
 /**
@@ -50,7 +82,6 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
   const handleCreate = useCallback(
     async (data: CardEditorSaveData) => {
       try {
-        // For pen notes, store title image in title field and body image in bodyText
         const card = await createCard({
           title: data.titleImageDataUrl || data.title,
           bodyText: data.imageDataUrl || data.bodyText,
@@ -169,6 +200,7 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
                 }}
               >
                 <div className="card-item-content">
+                  {/* Title */}
                   {card.title?.startsWith('data:image/') ? (
                     <img
                       className="card-item-title-drawing"
@@ -178,19 +210,10 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
                   ) : (
                     <h3 className="card-item-title">{card.title || 'Untitled'}</h3>
                   )}
-                  {card.source === 'pen' && card.bodyText?.startsWith('data:image/') ? (
-                    <img
-                      className="card-item-drawing"
-                      src={card.bodyText}
-                      alt="Pen drawing"
-                    />
-                  ) : card.bodyText ? (
-                    <MarkdownPreview
-                      content={card.bodyText}
-                      className="card-item-body"
-                      maxLines={3}
-                    />
-                  ) : null}
+
+                  {/* Body — render as blocks */}
+                  <CardBodyPreview bodyText={card.bodyText} source={card.source} />
+
                   <span className="card-item-meta">
                     {card.source === 'pen' ? 'Pen' : 'Keyboard'} &middot; {new Date(card.createdAt).toLocaleDateString()}
                   </span>
@@ -210,6 +233,36 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
             ),
           )}
         </div>
+      )}
+    </div>
+  )
+}
+
+/** Renders card body content, handling both block-based and legacy formats */
+function CardBodyPreview({ bodyText, source }: { bodyText: string; source: string }) {
+  if (!bodyText) return null
+
+  const blocks = parseBodyBlocks(bodyText, source)
+  if (blocks.length === 0) return null
+
+  return (
+    <div className="card-item-blocks">
+      {blocks.map((block) =>
+        block.type === 'drawing' ? (
+          <img
+            key={block.id}
+            className="card-item-drawing"
+            src={block.content}
+            alt="Drawing"
+          />
+        ) : (
+          <MarkdownPreview
+            key={block.id}
+            content={block.content}
+            className="card-item-body"
+            maxLines={3}
+          />
+        ),
       )}
     </div>
   )

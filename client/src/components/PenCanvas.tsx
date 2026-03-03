@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react'
-import type { StrokePoint, PenStroke } from '@/types/models'
+import type { StrokePoint, PenStroke, StrokeTool, LineStyle } from '@/types/models'
 import { drawStroke } from '@/utils/strokeRenderer'
 
 export interface PenCanvasHandle {
@@ -16,10 +16,36 @@ interface PenCanvasProps {
   color?: string
   /** Base stroke width (modulated by pressure) */
   strokeWidth?: number
+  /** Line style for strokes */
+  lineStyle?: LineStyle
+  /** Active tool */
+  tool?: StrokeTool
   /** CSS class for the wrapper */
   className?: string
   /** Previously saved strokes to load for re-editing */
   initialStrokes?: PenStroke[]
+  /** Called when strokes are erased */
+  onStrokeErased?: () => void
+}
+
+/** Minimum distance from pointer to stroke segment to count as a hit */
+const ERASER_RADIUS = 12
+
+/** Point-to-line-segment distance */
+function distToSegment(
+  px: number, py: number,
+  x1: number, y1: number,
+  x2: number, y2: number,
+): number {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const lenSq = dx * dx + dy * dy
+  if (lenSq === 0) return Math.hypot(px - x1, py - y1)
+
+  let t = ((px - x1) * dx + (py - y1) * dy) / lenSq
+  t = Math.max(0, Math.min(1, t))
+
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
 }
 
 /**
@@ -31,11 +57,20 @@ interface PenCanvasProps {
  * pen/touch gestures (scroll, zoom) on the canvas.
  */
 export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
-  function PenCanvas({ color = '#1a1a2e', strokeWidth = 2, className, initialStrokes }, ref) {
+  function PenCanvas({
+    color = '#1a1a2e',
+    strokeWidth = 2,
+    lineStyle = 'solid',
+    tool = 'pen',
+    className,
+    initialStrokes,
+    onStrokeErased,
+  }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const strokesRef = useRef<PenStroke[]>([])
     const currentStrokeRef = useRef<PenStroke | null>(null)
     const drawingRef = useRef(false)
+    const erasingRef = useRef(false)
 
     // Resize canvas to match its CSS size at device pixel ratio
     const resizeCanvas = useCallback(() => {
@@ -97,51 +132,93 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       }
     }, [])
 
+    /** Erase any stroke near the given point */
+    const eraseAtPoint = useCallback((point: StrokePoint) => {
+      const before = strokesRef.current.length
+      strokesRef.current = strokesRef.current.filter((stroke) => {
+        for (let i = 1; i < stroke.points.length; i++) {
+          const p0 = stroke.points[i - 1]
+          const p1 = stroke.points[i]
+          const dist = distToSegment(point.x, point.y, p0.x, p0.y, p1.x, p1.y)
+          if (dist < ERASER_RADIUS + stroke.width * 0.75) {
+            return false // remove this stroke
+          }
+        }
+        return true // keep
+      })
+      if (strokesRef.current.length !== before) {
+        redraw()
+        onStrokeErased?.()
+      }
+    }, [redraw, onStrokeErased])
+
     const handlePointerDown = useCallback(
       (e: PointerEvent) => {
         const canvas = canvasRef.current
         if (!canvas) return
         canvas.setPointerCapture(e.pointerId)
-        drawingRef.current = true
         const point = getPoint(e)
-        currentStrokeRef.current = {
-          points: [point],
-          color,
-          width: strokeWidth,
+
+        if (tool === 'eraser') {
+          erasingRef.current = true
+          eraseAtPoint(point)
+        } else {
+          drawingRef.current = true
+          currentStrokeRef.current = {
+            points: [point],
+            color,
+            width: strokeWidth,
+            lineStyle: lineStyle === 'solid' ? undefined : lineStyle,
+          }
         }
       },
-      [color, strokeWidth, getPoint],
+      [color, strokeWidth, lineStyle, tool, getPoint, eraseAtPoint],
     )
 
     const handlePointerMove = useCallback(
       (e: PointerEvent) => {
+        if (tool === 'eraser' && erasingRef.current) {
+          eraseAtPoint(getPoint(e))
+          return
+        }
+
         if (!drawingRef.current || !currentStrokeRef.current) return
         const point = getPoint(e)
         currentStrokeRef.current.points.push(point)
 
-        // Draw incremental segment for responsiveness
-        const ctx = canvasRef.current?.getContext('2d')
-        if (ctx) {
-          const pts = currentStrokeRef.current.points
-          if (pts.length >= 2) {
-            const prev = pts[pts.length - 2]
-            const curr = pts[pts.length - 1]
-            const p = Math.max(curr.pressure, 0.1)
-            ctx.lineCap = 'round'
-            ctx.lineJoin = 'round'
-            ctx.strokeStyle = currentStrokeRef.current.color
-            ctx.lineWidth = currentStrokeRef.current.width * (0.3 + p * 1.2)
-            ctx.beginPath()
-            ctx.moveTo(prev.x, prev.y)
-            ctx.lineTo(curr.x, curr.y)
-            ctx.stroke()
+        const currentLineStyle = currentStrokeRef.current.lineStyle ?? 'solid'
+        if (currentLineStyle !== 'solid') {
+          // Full redraw needed for correct dash pattern
+          redraw()
+        } else {
+          // Draw incremental segment for responsiveness
+          const ctx = canvasRef.current?.getContext('2d')
+          if (ctx) {
+            const pts = currentStrokeRef.current.points
+            if (pts.length >= 2) {
+              const prev = pts[pts.length - 2]
+              const curr = pts[pts.length - 1]
+              const p = Math.max(curr.pressure, 0.1)
+              ctx.lineCap = 'round'
+              ctx.lineJoin = 'round'
+              ctx.strokeStyle = currentStrokeRef.current.color
+              ctx.lineWidth = currentStrokeRef.current.width * (0.3 + p * 1.2)
+              ctx.beginPath()
+              ctx.moveTo(prev.x, prev.y)
+              ctx.lineTo(curr.x, curr.y)
+              ctx.stroke()
+            }
           }
         }
       },
-      [getPoint],
+      [getPoint, tool, eraseAtPoint, redraw],
     )
 
     const handlePointerUp = useCallback(() => {
+      if (erasingRef.current) {
+        erasingRef.current = false
+        return
+      }
       if (!drawingRef.current) return
       drawingRef.current = false
       if (currentStrokeRef.current && currentStrokeRef.current.points.length > 1) {
@@ -185,7 +262,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     return (
       <canvas
         ref={canvasRef}
-        className={`pen-canvas ${className ?? ''}`}
+        className={`pen-canvas ${tool === 'eraser' ? 'pen-canvas-eraser' : ''} ${className ?? ''}`}
         // Prevent browser gestures (scroll, pinch-zoom) on the drawing surface
         style={{ touchAction: 'none' }}
       />

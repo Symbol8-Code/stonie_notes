@@ -908,6 +908,145 @@ kbd {
   overflow: hidden;
 }
 
+/* ── Drawing Palette ──────────────────────────── */
+
+.drawing-palette {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.drawing-palette-group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  transition: opacity var(--transition-fast);
+}
+
+.drawing-palette-group.drawing-palette-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.drawing-palette-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+  margin: 0 4px;
+}
+
+/* Tool buttons (Pen / Eraser) */
+.drawing-palette-tool {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: background var(--transition-fast),
+              color var(--transition-fast),
+              border-color var(--transition-fast);
+}
+
+.drawing-palette-tool:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.drawing-palette-tool.active {
+  background: var(--color-accent);
+  color: white;
+  border-color: var(--color-accent);
+}
+
+/* Color swatches */
+.drawing-palette-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: border-color var(--transition-fast),
+              transform var(--transition-fast);
+}
+
+.drawing-palette-swatch:hover {
+  transform: scale(1.15);
+}
+
+.drawing-palette-swatch.active {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
+}
+
+/* Width presets */
+.drawing-palette-width {
+  width: 30px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.drawing-palette-width:hover {
+  background: var(--color-accent-light);
+}
+
+.drawing-palette-width.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+.drawing-palette-width-dot {
+  display: block;
+  border-radius: 50%;
+  background: var(--color-text);
+}
+
+/* Line style buttons */
+.drawing-palette-style {
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  color: var(--color-text-secondary);
+  letter-spacing: 1px;
+  transition: background var(--transition-fast),
+              border-color var(--transition-fast);
+}
+
+.drawing-palette-style:hover {
+  background: var(--color-accent-light);
+}
+
+.drawing-palette-style.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+  color: var(--color-text);
+}
+
+/* Eraser cursor */
+.pen-canvas-eraser {
+  cursor: not-allowed;
+}
+
 /* ── Pen Canvas ───────────────────────────────── */
 
 .pen-canvas-wrapper {

@@ -7,6 +7,7 @@ export type CardSource = 'pen' | 'keyboard' | 'photo' | 'voice' | 'ai_extracted'
 export type CardStatus = 'open' | 'in_progress' | 'done' | 'archived'
 export type BoardType = 'kanban' | 'list' | 'timeline' | 'custom'
 export type StrokeTool = 'pen' | 'highlighter' | 'eraser'
+export type LineStyle = 'solid' | 'dashed' | 'dotted'
 export type InputMode = 'pen' | 'touch' | 'mouse' | 'keyboard'
 
 export interface Card {
@@ -63,6 +64,7 @@ export interface PenStroke {
   points: StrokePoint[]
   color: string
   width: number
+  lineStyle?: LineStyle
 }
 
 export interface Stroke {

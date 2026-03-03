@@ -3,13 +3,28 @@ import { PenCanvas } from '@/components/PenCanvas'
 import { StrokePreview } from '@/components/StrokePreview'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
+import { DrawingPalette } from '@/components/DrawingPalette'
 import { useInputModeContext } from '@/contexts/InputModeContext'
 import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId } from '@/utils/cardBlocks'
 import { hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
-import type { Card, ContentBlock, SectionType } from '@/types/models'
+import type { Card, ContentBlock, SectionType, StrokeTool, LineStyle } from '@/types/models'
 
 type EditorMode = 'keyboard' | 'pen'
+
+interface DrawingToolState {
+  tool: StrokeTool
+  color: string
+  strokeWidth: number
+  lineStyle: LineStyle
+}
+
+const DEFAULT_DRAWING_TOOL: DrawingToolState = {
+  tool: 'pen',
+  color: '#1a1a2e',
+  strokeWidth: 2,
+  lineStyle: 'solid',
+}
 
 export interface CardEditorSaveData {
   title: string
@@ -47,6 +62,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
     return blocks[0]?.id ?? ''
   })
   const [mode, setMode] = useState<EditorMode>(initialMode)
+  const [drawingTool, setDrawingTool] = useState<DrawingToolState>(DEFAULT_DRAWING_TOOL)
 
   const penCanvasRefs = useRef<Map<string, PenCanvasHandle>>(new Map())
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -226,6 +242,20 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
         </button>
       </div>
 
+      {/* Drawing palette — only in pen mode */}
+      {mode === 'pen' && (
+        <DrawingPalette
+          tool={drawingTool.tool}
+          color={drawingTool.color}
+          strokeWidth={drawingTool.strokeWidth}
+          lineStyle={drawingTool.lineStyle}
+          onToolChange={(tool) => setDrawingTool((prev) => ({ ...prev, tool }))}
+          onColorChange={(color) => setDrawingTool((prev) => ({ ...prev, color }))}
+          onStrokeWidthChange={(strokeWidth) => setDrawingTool((prev) => ({ ...prev, strokeWidth }))}
+          onLineStyleChange={(lineStyle) => setDrawingTool((prev) => ({ ...prev, lineStyle }))}
+        />
+      )}
+
       {/* Section list */}
       <div className="section-list">
         {blocks.map((block, index) => (
@@ -234,6 +264,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
               block={block}
               isActive={block.id === activeBlockId}
               mode={mode}
+              drawingTool={drawingTool}
               onActivate={() => handleActivateBlock(block.id)}
               onTextChange={(text) => handleBlockTextChange(block.id, text)}
               onDelete={() => handleDeleteBlock(block.id)}
@@ -267,6 +298,7 @@ interface SectionBlockProps {
   block: ContentBlock
   isActive: boolean
   mode: EditorMode
+  drawingTool: DrawingToolState
   onActivate: () => void
   onTextChange: (text: string) => void
   onDelete: () => void
@@ -279,6 +311,7 @@ function SectionBlock({
   block,
   isActive,
   mode,
+  drawingTool,
   onActivate,
   onTextChange,
   onDelete,
@@ -348,6 +381,10 @@ function SectionBlock({
           <div className="pen-canvas-wrapper">
             <PenCanvas
               ref={(handle) => registerPenRef(block.id, handle)}
+              color={drawingTool.color}
+              strokeWidth={drawingTool.strokeWidth}
+              lineStyle={drawingTool.lineStyle}
+              tool={drawingTool.tool}
               className={isHeading ? 'pen-canvas-title' : ''}
               initialStrokes={block.drawingContent}
             />

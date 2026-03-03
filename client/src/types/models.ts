@@ -77,6 +77,17 @@ export interface Tag {
   color: string
 }
 
+/**
+ * A content block within a card body.
+ * Cards store an array of blocks, allowing interleaved text and drawing areas (Notion-style).
+ */
+export interface ContentBlock {
+  id: string
+  type: 'text' | 'drawing'
+  /** Markdown for text blocks, PNG data URL for drawing blocks */
+  content: string
+}
+
 export interface Workspace {
   id: string
   name: string

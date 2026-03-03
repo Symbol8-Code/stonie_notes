@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { PenCanvas } from '@/components/PenCanvas'
+import { RichTextEditor } from '@/components/RichTextEditor'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
 import type { Card, InputMode } from '@/types/models'
 
 type EditorMode = 'keyboard' | 'pen'
 
-interface CardEditorSaveData {
+export interface CardEditorSaveData {
   title: string
   bodyText: string
   source: 'keyboard' | 'pen'
@@ -18,6 +19,8 @@ interface CardEditorSaveData {
 interface CardEditorProps {
   onSave: (data: CardEditorSaveData) => void
   onCancel: () => void
+  /** Called on each change for auto-save (debounced by parent) */
+  onAutoSave?: (data: CardEditorSaveData) => void
   /** Current detected input mode — sets the initial editor mode */
   inputMode?: InputMode
   /** If provided, editing an existing card */
@@ -27,13 +30,13 @@ interface CardEditorProps {
 /**
  * Inline card editor for creating/editing notes.
  * Supports two modes:
- *   - keyboard: text title + textarea body
+ *   - keyboard: text title + rich text Markdown body
  *   - pen: drawing canvas title + drawing canvas body
  *
  * The mode defaults based on the detected inputMode but can be toggled.
  * Ctrl/Cmd+Enter saves, Escape cancels.
  */
-export function CardEditor({ onSave, onCancel, inputMode, card }: CardEditorProps) {
+export function CardEditor({ onSave, onCancel, onAutoSave, inputMode, card }: CardEditorProps) {
   const initialMode: EditorMode = inputMode === 'pen' ? 'pen' : 'keyboard'
   const [mode, setMode] = useState<EditorMode>(initialMode)
   const [title, setTitle] = useState(card?.title ?? '')
@@ -41,12 +44,36 @@ export function CardEditor({ onSave, onCancel, inputMode, card }: CardEditorProp
   const titleRef = useRef<HTMLInputElement>(null)
   const titlePenRef = useRef<PenCanvasHandle>(null)
   const bodyPenRef = useRef<PenCanvasHandle>(null)
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (mode === 'keyboard') {
       titleRef.current?.focus()
     }
   }, [mode])
+
+  // Debounced auto-save on content change
+  useEffect(() => {
+    if (!onAutoSave || mode !== 'keyboard') return
+    if (!title.trim() && !bodyText.trim()) return
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      onAutoSave({
+        title: title.trim() || 'Untitled',
+        bodyText: bodyText.trim(),
+        source: 'keyboard',
+      })
+    }, 1500)
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+      }
+    }
+  }, [title, bodyText, onAutoSave, mode])
 
   const handleSave = useCallback(() => {
     if (mode === 'pen') {
@@ -122,12 +149,10 @@ export function CardEditor({ onSave, onCancel, inputMode, card }: CardEditorProp
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
-          <textarea
-            className="card-editor-body"
-            placeholder="Write something..."
+          <RichTextEditor
             value={bodyText}
-            onChange={(e) => setBodyText(e.target.value)}
-            rows={4}
+            onChange={setBodyText}
+            placeholder="Write something... (supports Markdown)"
           />
         </>
       ) : (

@@ -1,11 +1,17 @@
 import { useState } from 'react'
 import { useDeviceType } from '@/hooks/useMediaQuery'
-import type { InputMode } from '@/types/models'
+import { useInputModeContext } from '@/contexts/InputModeContext'
 
 interface SidebarProps {
   activePage: string
   onNavigate: (page: string) => void
-  inputMode: InputMode
+}
+
+const INPUT_MODE_ICONS: Record<string, string> = {
+  pen: 'Pen',
+  touch: 'Touch',
+  keyboard: 'Keys',
+  mouse: 'Mouse',
 }
 
 const NAV_ITEMS = [
@@ -20,9 +26,11 @@ const NAV_ITEMS = [
  * Desktop: persistent vertical sidebar with labels.
  * Tablet: collapsible sidebar (icons only when collapsed, full when expanded).
  * Phone: bottom navigation bar.
+ * Input mode badge shows current active input and adapts its color per mode.
  * See DESIGN.md Section 3.6 (Responsive Layout).
  */
-export function Sidebar({ activePage, onNavigate, inputMode }: SidebarProps) {
+export function Sidebar({ activePage, onNavigate }: SidebarProps) {
+  const { mode: inputMode, capabilities } = useInputModeContext()
   const device = useDeviceType()
   const [collapsed, setCollapsed] = useState(device === 'tablet')
 
@@ -65,8 +73,16 @@ export function Sidebar({ activePage, onNavigate, inputMode }: SidebarProps) {
           </button>
         )}
         {!isCollapsed && (
-          <span className="input-badge" title={`Active input: ${inputMode}`}>
-            {inputMode}
+          <span
+            className={`input-badge input-badge-${inputMode}`}
+            title={`Active: ${inputMode} | Capabilities: ${[
+              capabilities.hasTouch && 'touch',
+              capabilities.hasPen && 'pen',
+              capabilities.hasMouse && 'mouse',
+              capabilities.hasKeyboard && 'keyboard',
+            ].filter(Boolean).join(', ')}`}
+          >
+            {INPUT_MODE_ICONS[inputMode] ?? inputMode}
           </span>
         )}
       </div>

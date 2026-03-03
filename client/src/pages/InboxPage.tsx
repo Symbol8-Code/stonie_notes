@@ -3,22 +3,21 @@ import { CardEditor } from '@/components/CardEditor'
 import type { CardEditorSaveData } from '@/components/CardEditor'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { listCards, createCard, updateCard, archiveCard } from '@/services/api'
-import type { Card, InputMode } from '@/types/models'
+import type { Card } from '@/types/models'
 
 interface InboxPageProps {
   /** When true, immediately open the editor for a new note */
   startCreating?: boolean
   onCreatingDone?: () => void
-  /** Current detected input mode — passed to CardEditor */
-  inputMode?: InputMode
 }
 
 /**
  * Inbox: default landing zone for quick-captured items.
  * Lists cards with status 'open' and allows creating and editing.
+ * CardEditor reads input mode from InputModeContext automatically.
  * See DESIGN.md Section 4.4 (Search & Organization — Inbox).
  */
-export function InboxPage({ startCreating = false, onCreatingDone, inputMode }: InboxPageProps) {
+export function InboxPage({ startCreating = false, onCreatingDone }: InboxPageProps) {
   const [cards, setCards] = useState<Card[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -136,7 +135,6 @@ export function InboxPage({ startCreating = false, onCreatingDone, inputMode }: 
         <CardEditor
           onSave={handleCreate}
           onCancel={handleCancelCreate}
-          inputMode={inputMode}
         />
       )}
 
@@ -158,7 +156,6 @@ export function InboxPage({ startCreating = false, onCreatingDone, inputMode }: 
                 onSave={handleEdit}
                 onCancel={handleCancelEdit}
                 onAutoSave={handleAutoSave}
-                inputMode={inputMode}
               />
             ) : (
               <div

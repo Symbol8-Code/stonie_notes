@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { PenCanvas } from '@/components/PenCanvas'
 import { RichTextEditor } from '@/components/RichTextEditor'
+import { useInputModeContext } from '@/contexts/InputModeContext'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
-import type { Card, InputMode } from '@/types/models'
+import type { Card } from '@/types/models'
 
 type EditorMode = 'keyboard' | 'pen'
 
@@ -21,8 +22,6 @@ interface CardEditorProps {
   onCancel: () => void
   /** Called on each change for auto-save (debounced by parent) */
   onAutoSave?: (data: CardEditorSaveData) => void
-  /** Current detected input mode — sets the initial editor mode */
-  inputMode?: InputMode
   /** If provided, editing an existing card */
   card?: Card
 }
@@ -33,10 +32,11 @@ interface CardEditorProps {
  *   - keyboard: text title + rich text Markdown body
  *   - pen: drawing canvas title + drawing canvas body
  *
- * The mode defaults based on the detected inputMode but can be toggled.
+ * The mode defaults based on the detected inputMode (from context) but can be toggled.
  * Ctrl/Cmd+Enter saves, Escape cancels.
  */
-export function CardEditor({ onSave, onCancel, onAutoSave, inputMode, card }: CardEditorProps) {
+export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorProps) {
+  const { mode: inputMode } = useInputModeContext()
   const initialMode: EditorMode = inputMode === 'pen' ? 'pen' : 'keyboard'
   const [mode, setMode] = useState<EditorMode>(initialMode)
   const [title, setTitle] = useState(card?.title ?? '')

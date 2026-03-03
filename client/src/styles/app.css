@@ -572,6 +572,187 @@ kbd {
   gap: 4px;
 }
 
+.card-preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.card-item-subheading {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-top: 4px;
+}
+
+/* ── Sections (semantic block system) ────────── */
+
+.section-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.content-section {
+  position: relative;
+  border-radius: var(--radius-md);
+  padding: 8px;
+  transition: box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.content-section:hover {
+  background: rgba(74, 108, 247, 0.02);
+}
+
+.section-active {
+  box-shadow: 0 0 0 2px var(--color-accent-light);
+  background: rgba(74, 108, 247, 0.03);
+}
+
+.content-section:hover .block-delete {
+  opacity: 1;
+}
+
+/* Section type label */
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.content-section:hover .section-label,
+.section-active .section-label {
+  opacity: 1;
+}
+
+/* Heading section */
+.section-heading-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+  padding: 4px 0;
+  outline: none;
+}
+
+.section-heading-input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.section-heading-preview {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+  padding: 4px 0;
+}
+
+/* Text sub-area */
+.section-text-area {
+  margin-bottom: 4px;
+}
+
+.section-text-preview {
+  padding: 4px 0;
+  min-height: 24px;
+  cursor: text;
+}
+
+/* Drawing sub-area */
+.section-drawing-area {
+  margin-top: 4px;
+}
+
+.section-drawing-area .block-drawing-image {
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.section-heading .section-drawing-area .block-drawing-image {
+  max-height: 50px;
+}
+
+/* ── Add Section Button ─────────────────────── */
+
+.add-section-trigger {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.section-list:hover .add-section-trigger,
+.add-section-trigger:focus-within {
+  opacity: 1;
+}
+
+.add-section-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--color-border);
+  background: transparent;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.add-section-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+.add-section-menu {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  padding: 6px 0;
+}
+
+.add-section-option {
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--color-text);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.add-section-option:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+.add-section-cancel {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+
+.add-section-cancel:hover {
+  color: var(--color-text);
+}
+
 /* ── Rich Text Editor ─────────────────────────── */
 
 .rich-text-editor {

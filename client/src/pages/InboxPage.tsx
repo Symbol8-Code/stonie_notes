@@ -3,44 +3,13 @@ import { CardEditor } from '@/components/CardEditor'
 import type { CardEditorSaveData } from '@/components/CardEditor'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { listCards, createCard, updateCard, archiveCard } from '@/services/api'
-import type { Card, ContentBlock } from '@/types/models'
+import { parseBlocks } from '@/utils/cardBlocks'
+import type { Card } from '@/types/models'
 
 interface InboxPageProps {
   /** When true, immediately open the editor for a new note */
   startCreating?: boolean
   onCreatingDone?: () => void
-}
-
-/**
- * Parse bodyText into ContentBlock[] for display.
- * Handles new JSON format, legacy pen data URLs, and legacy plain text.
- */
-function parseBodyBlocks(bodyText: string, source?: string): ContentBlock[] {
-  if (!bodyText) return []
-
-  // New block-based format (JSON array)
-  if (bodyText.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(bodyText) as ContentBlock[]
-      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((b) => b.type && b.content !== undefined)) {
-        return parsed
-      }
-    } catch {
-      // Fall through
-    }
-  }
-
-  // Legacy pen: entire bodyText is a data URL
-  if (source === 'pen' && bodyText.startsWith('data:image/')) {
-    return [{ id: 'legacy-drawing', type: 'drawing', content: bodyText }]
-  }
-
-  // Legacy keyboard: plain Markdown text
-  if (bodyText.trim()) {
-    return [{ id: 'legacy-text', type: 'text', content: bodyText }]
-  }
-
-  return []
 }
 
 /**
@@ -83,8 +52,8 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
     async (data: CardEditorSaveData) => {
       try {
         const card = await createCard({
-          title: data.titleImageDataUrl || data.title,
-          bodyText: data.imageDataUrl || data.bodyText,
+          title: data.title,
+          bodyText: data.bodyText,
           source: data.source,
         })
         setCards((prev) => [card, ...prev])
@@ -107,8 +76,8 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
       if (!editingId) return
       try {
         const updated = await updateCard(editingId, {
-          title: data.titleImageDataUrl || data.title,
-          bodyText: data.imageDataUrl || data.bodyText,
+          title: data.title,
+          bodyText: data.bodyText,
           source: data.source,
         })
         setCards((prev) => prev.map((c) => (c.id === editingId ? updated : c)))
@@ -200,7 +169,7 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
                 }}
               >
                 <div className="card-item-content">
-                  {/* Title */}
+                  {/* Title — derived from first heading block via card.title */}
                   {card.title?.startsWith('data:image/') ? (
                     <img
                       className="card-item-title-drawing"
@@ -211,8 +180,8 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
                     <h3 className="card-item-title">{card.title || 'Untitled'}</h3>
                   )}
 
-                  {/* Body — render as blocks */}
-                  <CardBodyPreview bodyText={card.bodyText} source={card.source} />
+                  {/* Body — render non-heading blocks */}
+                  <CardBodyPreview bodyText={card.bodyText} title={card.title} source={card.source} />
 
                   <span className="card-item-meta">
                     {card.source === 'pen' ? 'Pen' : 'Keyboard'} &middot; {new Date(card.createdAt).toLocaleDateString()}
@@ -238,32 +207,39 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
   )
 }
 
-/** Renders card body content, handling both block-based and legacy formats */
-function CardBodyPreview({ bodyText, source }: { bodyText: string; source: string }) {
+/** Renders card body content, skipping the first heading (already shown as card title) */
+function CardBodyPreview({ bodyText, title, source }: { bodyText: string; title: string; source: string }) {
   if (!bodyText) return null
 
-  const blocks = parseBodyBlocks(bodyText, source)
-  if (blocks.length === 0) return null
+  const blocks = parseBlocks(bodyText, title, source)
+  // Skip the first heading block — it's already displayed as the card title
+  const displayBlocks = blocks.filter((b, i) => !(i === 0 && b.type === 'heading'))
+  if (displayBlocks.length === 0) return null
 
   return (
     <div className="card-item-blocks">
-      {blocks.map((block) =>
-        block.type === 'drawing' ? (
-          <img
-            key={block.id}
-            className="card-item-drawing"
-            src={block.content}
-            alt="Drawing"
-          />
-        ) : (
-          <MarkdownPreview
-            key={block.id}
-            content={block.content}
-            className="card-item-body"
-            maxLines={3}
-          />
-        ),
-      )}
+      {displayBlocks.map((block) => (
+        <div key={block.id} className={`card-preview-section card-preview-${block.type}`}>
+          {block.textContent.trim() && (
+            block.type === 'heading' ? (
+              <h4 className="card-item-subheading">{block.textContent}</h4>
+            ) : (
+              <MarkdownPreview
+                content={block.textContent}
+                className="card-item-body"
+                maxLines={3}
+              />
+            )
+          )}
+          {block.drawingContent && (
+            <img
+              className={block.type === 'heading' ? 'card-item-title-drawing' : 'card-item-drawing'}
+              src={block.drawingContent}
+              alt={block.type === 'heading' ? 'Pen heading' : 'Drawing'}
+            />
+          )}
+        </div>
+      ))}
     </div>
   )
 }

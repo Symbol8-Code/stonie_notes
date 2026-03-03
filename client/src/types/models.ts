@@ -77,14 +77,26 @@ export interface Tag {
   color: string
 }
 
+/** Semantic section type. Extensible — add more types here as needed. */
+export type SectionType = 'heading' | 'body'
+
 /**
- * A content block within a card body.
- * Cards store an array of blocks, allowing interleaved text and drawing areas (Notion-style).
+ * A content section within a card.
+ * Each section has a semantic type and can hold BOTH text and drawing content.
  */
 export interface ContentBlock {
   id: string
+  type: SectionType
+  /** Keyboard-entered text: plain text for headings, Markdown for body sections */
+  textContent: string
+  /** PNG data URL from pen input. Empty string if no drawing. */
+  drawingContent: string
+}
+
+/** @deprecated Legacy block format from before the section-based redesign */
+export interface LegacyContentBlock {
+  id: string
   type: 'text' | 'drawing'
-  /** Markdown for text blocks, PNG data URL for drawing blocks */
   content: string
 }
 

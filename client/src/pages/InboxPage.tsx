@@ -5,7 +5,7 @@ import { StrokePreview } from '@/components/StrokePreview'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { listCards, createCard, updateCard, archiveCard } from '@/services/api'
 import { parseBlocks } from '@/utils/cardBlocks'
-import { isStrokeData, isLegacyPng, hasDrawing } from '@/types/models'
+import { hasDrawing } from '@/types/models'
 import type { Card } from '@/types/models'
 
 interface InboxPageProps {
@@ -172,18 +172,10 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
               >
                 <div className="card-item-content">
                   {/* Title — derived from first heading block via card.title */}
-                  {card.title?.startsWith('data:image/') ? (
-                    <img
-                      className="card-item-title-drawing"
-                      src={card.title}
-                      alt="Pen title"
-                    />
-                  ) : (
-                    <h3 className="card-item-title">{card.title || 'Untitled'}</h3>
-                  )}
+                  <h3 className="card-item-title">{card.title || 'Untitled'}</h3>
 
                   {/* Body — render non-heading blocks */}
-                  <CardBodyPreview bodyText={card.bodyText} title={card.title} source={card.source} />
+                  <CardBodyPreview bodyText={card.bodyText} title={card.title} />
 
                   <span className="card-item-meta">
                     {card.source === 'pen' ? 'Pen' : 'Keyboard'} &middot; {new Date(card.createdAt).toLocaleDateString()}
@@ -210,10 +202,10 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
 }
 
 /** Renders card body content, skipping the first heading (already shown as card title) */
-function CardBodyPreview({ bodyText, title, source }: { bodyText: string; title: string; source: string }) {
+function CardBodyPreview({ bodyText, title }: { bodyText: string; title: string }) {
   if (!bodyText) return null
 
-  const blocks = parseBlocks(bodyText, title, source)
+  const blocks = parseBlocks(bodyText, title)
   // Skip the first heading block — it's already displayed as the card title
   const displayBlocks = blocks.filter((b, i) => !(i === 0 && b.type === 'heading'))
   if (displayBlocks.length === 0) return null
@@ -234,18 +226,10 @@ function CardBodyPreview({ bodyText, title, source }: { bodyText: string; title:
             )
           )}
           {hasDrawing(block.drawingContent) && (
-            isStrokeData(block.drawingContent) ? (
-              <StrokePreview
-                strokes={block.drawingContent}
-                className={block.type === 'heading' ? 'card-item-title-drawing' : 'card-item-drawing'}
-              />
-            ) : isLegacyPng(block.drawingContent) ? (
-              <img
-                className={block.type === 'heading' ? 'card-item-title-drawing' : 'card-item-drawing'}
-                src={block.drawingContent}
-                alt={block.type === 'heading' ? 'Pen heading' : 'Drawing'}
-              />
-            ) : null
+            <StrokePreview
+              strokes={block.drawingContent}
+              className={block.type === 'heading' ? 'card-item-title-drawing' : 'card-item-drawing'}
+            />
           )}
         </div>
       ))}

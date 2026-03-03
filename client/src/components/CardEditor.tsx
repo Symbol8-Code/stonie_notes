@@ -5,7 +5,7 @@ import { RichTextEditor } from '@/components/RichTextEditor'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { useInputModeContext } from '@/contexts/InputModeContext'
 import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId } from '@/utils/cardBlocks'
-import { isStrokeData, isLegacyPng, hasDrawing } from '@/types/models'
+import { hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
 import type { Card, ContentBlock, SectionType } from '@/types/models'
 
@@ -38,7 +38,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
 
   const [blocks, setBlocks] = useState<ContentBlock[]>(() => {
     if (card) {
-      const parsed = parseBlocks(card.bodyText, card.title, card.source)
+      const parsed = parseBlocks(card.bodyText, card.title)
       if (parsed.length > 0) return parsed
     }
     return defaultBlocks()
@@ -136,7 +136,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
       id: nextBlockId(),
       type: sectionType,
       textContent: '',
-      drawingContent: '',
+      drawingContent: [],
     }
     setBlocks((prev) => {
       const next = [...prev]
@@ -168,7 +168,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   const handleClearDrawing = useCallback((blockId: string) => {
     penCanvasRefs.current.get(blockId)?.clear()
     setBlocks((prev) =>
-      prev.map((b) => (b.id === blockId ? { ...b, drawingContent: '' } : b)),
+      prev.map((b) => (b.id === blockId ? { ...b, drawingContent: [] } : b)),
     )
   }, [])
 
@@ -349,7 +349,7 @@ function SectionBlock({
             <PenCanvas
               ref={(handle) => registerPenRef(block.id, handle)}
               className={isHeading ? 'pen-canvas-title' : ''}
-              initialStrokes={isStrokeData(block.drawingContent) ? block.drawingContent : undefined}
+              initialStrokes={block.drawingContent}
             />
             <button
               className="pen-canvas-clear"
@@ -368,18 +368,10 @@ function SectionBlock({
       {/* Finalized drawing preview */}
       {hasDrawing(block.drawingContent) && !showCanvas && (
         <div className="section-drawing-area">
-          {isStrokeData(block.drawingContent) ? (
-            <StrokePreview
-              strokes={block.drawingContent}
-              className={isHeading ? 'block-title-image' : 'block-drawing-image'}
-            />
-          ) : isLegacyPng(block.drawingContent) ? (
-            <img
-              className={`block-drawing-image ${isHeading ? 'block-title-image' : ''}`}
-              src={block.drawingContent}
-              alt={isHeading ? 'Pen heading' : 'Drawing'}
-            />
-          ) : null}
+          <StrokePreview
+            strokes={block.drawingContent}
+            className={isHeading ? 'block-title-image' : 'block-drawing-image'}
+          />
           {isActive && (
             <button
               className="pen-canvas-clear"

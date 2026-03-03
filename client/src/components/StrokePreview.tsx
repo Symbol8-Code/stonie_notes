@@ -13,11 +13,13 @@ interface StrokePreviewProps {
  * the drawing to fit the canvas width.
  */
 export function StrokePreview({ strokes, className }: StrokePreviewProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
-    if (!canvas || strokes.length === 0) return
+    const wrapper = wrapperRef.current
+    if (!canvas || !wrapper || strokes.length === 0) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
@@ -40,15 +42,23 @@ export function StrokePreview({ strokes, className }: StrokePreviewProps) {
     const contentW = maxX - minX + padding * 2
     const contentH = maxY - minY + padding * 2
 
-    // Scale to fit the container width
-    const rect = canvas.getBoundingClientRect()
-    const displayW = rect.width || contentW
-    const scale = displayW / contentW
+    // Scale uniformly to fit within container width, never enlarge
+    const containerW = wrapper.getBoundingClientRect().width || contentW
+    let scale = Math.min(1, containerW / contentW)
+
+    // Also constrain by max-height if set, keeping aspect ratio
+    const maxH = parseFloat(getComputedStyle(wrapper).maxHeight)
+    if (maxH && isFinite(maxH) && contentH * scale > maxH) {
+      scale = Math.min(scale, maxH / contentH)
+    }
+
+    const displayW = contentW * scale
     const displayH = contentH * scale
 
     const dpr = window.devicePixelRatio || 1
     canvas.width = displayW * dpr
     canvas.height = displayH * dpr
+    canvas.style.width = `${displayW}px`
     canvas.style.height = `${displayH}px`
     ctx.scale(dpr * scale, dpr * scale)
 
@@ -63,17 +73,15 @@ export function StrokePreview({ strokes, className }: StrokePreviewProps) {
   useEffect(() => {
     draw()
     const observer = new ResizeObserver(draw)
-    if (canvasRef.current) observer.observe(canvasRef.current)
+    if (wrapperRef.current) observer.observe(wrapperRef.current)
     return () => observer.disconnect()
   }, [draw])
 
   if (strokes.length === 0) return null
 
   return (
-    <canvas
-      ref={canvasRef}
-      className={`stroke-preview ${className ?? ''}`}
-      style={{ width: '100%', display: 'block' }}
-    />
+    <div ref={wrapperRef} className={`stroke-preview ${className ?? ''}`}>
+      <canvas ref={canvasRef} style={{ display: 'block' }} />
+    </div>
   )
 }

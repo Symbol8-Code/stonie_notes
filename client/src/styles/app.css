@@ -818,6 +818,108 @@ kbd {
   }
 }
 
+/* ── Input Mode Adaptations ──────────────────── */
+
+/*
+ * Pen mode: surface drawing tools, enlarge canvas areas.
+ * Keyboard mode: show shortcut hints, strong focus indicators.
+ * Touch mode: larger tap targets, more spacing.
+ * Mouse mode: standard desktop UI (default).
+ * See DESIGN.md Section 3.1 (Multi-Modal Input Philosophy).
+ */
+
+/* -- Pen mode: emphasize drawing surfaces -- */
+.input-pen .pen-canvas {
+  height: 280px;
+}
+
+.input-pen .pen-canvas-title {
+  height: 80px;
+}
+
+.input-pen .card-editor-mode-toggle .btn-mode:last-child {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* -- Keyboard mode: show shortcut hints prominently -- */
+.input-keyboard kbd {
+  opacity: 1;
+}
+
+.input-mouse kbd,
+.input-touch kbd,
+.input-pen kbd {
+  opacity: 0.5;
+}
+
+/* -- Touch mode: larger targets and spacing -- */
+.input-touch .sidebar-nav-item {
+  padding: 14px 12px;
+  font-size: 15px;
+}
+
+.input-touch .bottom-nav-item {
+  padding: 8px 16px;
+}
+
+.input-touch .card-item {
+  padding: 16px;
+}
+
+.input-touch .btn {
+  padding: 10px 20px;
+  font-size: 15px;
+}
+
+.input-touch .rte-toolbar-btn {
+  width: 38px;
+  height: 36px;
+  font-size: 15px;
+}
+
+.input-touch .card-item-archive {
+  width: 36px;
+  height: 36px;
+  font-size: 22px;
+}
+
+/* -- Input badge color per mode -- */
+.input-badge-pen {
+  background: #7c3aed;
+}
+
+.input-badge-touch {
+  background: #059669;
+}
+
+.input-badge-keyboard {
+  background: #2563eb;
+}
+
+.input-badge-mouse {
+  background: var(--color-accent);
+}
+
+/* -- Capability-based: extra spacing for touch-capable devices -- */
+.cap-touch .card-editor-actions {
+  gap: 12px;
+}
+
+.cap-touch .card-editor-mode-toggle {
+  gap: 8px;
+}
+
+/* -- Capability-based: show pen mode toggle only when pen is available -- */
+.card-editor-mode-toggle .btn-mode:last-child {
+  display: none;
+}
+
+.cap-pen .card-editor-mode-toggle .btn-mode:last-child,
+.input-pen .card-editor-mode-toggle .btn-mode:last-child {
+  display: inline-flex;
+}
+
 /* ── Focus styles for keyboard navigation ──────── */
 
 :focus-visible {

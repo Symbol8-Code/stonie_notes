@@ -1,11 +1,11 @@
 import { useState, useCallback, useMemo } from 'react'
+import { InputModeProvider, useInputModeContext } from '@/contexts/InputModeContext'
 import { Sidebar } from '@/components/Sidebar'
 import { FloatingActionButton } from '@/components/FloatingActionButton'
 import { InboxPage } from '@/pages/InboxPage'
 import { BoardsPage } from '@/pages/BoardsPage'
 import { CanvasesPage } from '@/pages/CanvasesPage'
 import { SearchPage } from '@/pages/SearchPage'
-import { useInputMode } from '@/hooks/useInputMode'
 import { useDeviceType } from '@/hooks/useMediaQuery'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import './styles/app.css'
@@ -17,10 +17,10 @@ import './styles/app.css'
  * Phone: single-pane content + bottom nav + FAB.
  * See DESIGN.md Section 3.6 (Responsive Layout).
  */
-function App() {
+function AppShell() {
   const [activePage, setActivePage] = useState('inbox')
   const [creatingNote, setCreatingNote] = useState(false)
-  const inputMode = useInputMode()
+  const { mode, capabilities } = useInputModeContext()
   const device = useDeviceType()
 
   const startNewNote = useCallback(() => {
@@ -49,7 +49,6 @@ function App() {
           <InboxPage
             startCreating={creatingNote}
             onCreatingDone={handleCreatingDone}
-            inputMode={inputMode}
           />
         )
       case 'boards':
@@ -63,19 +62,25 @@ function App() {
           <InboxPage
             startCreating={creatingNote}
             onCreatingDone={handleCreatingDone}
-            inputMode={inputMode}
           />
         )
     }
   }
 
+  // Build capability classes for CSS targeting
+  const capClasses = [
+    capabilities.hasTouch ? 'cap-touch' : '',
+    capabilities.hasPen ? 'cap-pen' : '',
+    capabilities.hasMouse ? 'cap-mouse' : '',
+    capabilities.hasKeyboard ? 'cap-keyboard' : '',
+  ].filter(Boolean).join(' ')
+
   return (
-    <div className={`app-shell device-${device} input-${inputMode}`}>
+    <div className={`app-shell device-${device} input-${mode} ${capClasses}`}>
       {device !== 'phone' && (
         <Sidebar
           activePage={activePage}
           onNavigate={setActivePage}
-          inputMode={inputMode}
         />
       )}
 
@@ -89,10 +94,17 @@ function App() {
         <Sidebar
           activePage={activePage}
           onNavigate={setActivePage}
-          inputMode={inputMode}
         />
       )}
     </div>
+  )
+}
+
+function App() {
+  return (
+    <InputModeProvider>
+      <AppShell />
+    </InputModeProvider>
   )
 }
 

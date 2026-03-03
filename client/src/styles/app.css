@@ -837,7 +837,7 @@ kbd {
   height: 80px;
 }
 
-.input-pen .card-editor-mode-toggle .btn-mode:last-child {
+.input-pen .card-editor-mode-toggle .btn-mode:last-child:not(.active) {
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
@@ -918,6 +918,8 @@ kbd {
 .cap-pen .card-editor-mode-toggle .btn-mode:last-child,
 .input-pen .card-editor-mode-toggle .btn-mode:last-child {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ── Focus styles for keyboard navigation ──────── */

@@ -1,15 +1,8 @@
 import { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react'
-import type { StrokePoint } from '@/types/models'
-
-interface PenStroke {
-  points: StrokePoint[]
-  color: string
-  width: number
-}
+import type { StrokePoint, PenStroke } from '@/types/models'
+import { drawStroke } from '@/utils/strokeRenderer'
 
 export interface PenCanvasHandle {
-  /** Export the canvas content as a PNG data URL */
-  toDataURL: () => string
   /** Get all recorded strokes */
   getStrokes: () => PenStroke[]
   /** True if the canvas has any strokes */
@@ -25,6 +18,8 @@ interface PenCanvasProps {
   strokeWidth?: number
   /** CSS class for the wrapper */
   className?: string
+  /** Previously saved strokes to load for re-editing */
+  initialStrokes?: PenStroke[]
 }
 
 /**
@@ -36,7 +31,7 @@ interface PenCanvasProps {
  * pen/touch gestures (scroll, zoom) on the canvas.
  */
 export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
-  function PenCanvas({ color = '#1a1a2e', strokeWidth = 2, className }, ref) {
+  function PenCanvas({ color = '#1a1a2e', strokeWidth = 2, className, initialStrokes }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const strokesRef = useRef<PenStroke[]>([])
     const currentStrokeRef = useRef<PenStroke | null>(null)
@@ -75,34 +70,19 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       }
     }, [])
 
-    function drawStroke(ctx: CanvasRenderingContext2D, stroke: PenStroke) {
-      const { points, color: strokeColor, width } = stroke
-      if (points.length < 2) return
-
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
-      ctx.strokeStyle = strokeColor
-
-      for (let i = 1; i < points.length; i++) {
-        const prev = points[i - 1]
-        const curr = points[i]
-        // Pressure-sensitive width: pressure 0..1 maps to 0.3x..1.5x base width
-        const p = Math.max(curr.pressure, 0.1)
-        ctx.lineWidth = width * (0.3 + p * 1.2)
-
-        ctx.beginPath()
-        ctx.moveTo(prev.x, prev.y)
-        ctx.lineTo(curr.x, curr.y)
-        ctx.stroke()
-      }
-    }
-
     useEffect(() => {
       resizeCanvas()
       const observer = new ResizeObserver(resizeCanvas)
       if (canvasRef.current) observer.observe(canvasRef.current)
       return () => observer.disconnect()
     }, [resizeCanvas])
+
+    // Load previously saved strokes for re-editing
+    useEffect(() => {
+      if (!initialStrokes || initialStrokes.length === 0) return
+      strokesRef.current = [...initialStrokes]
+      requestAnimationFrame(() => redraw())
+    }, [initialStrokes, redraw])
 
     const getPoint = useCallback((e: PointerEvent): StrokePoint => {
       const canvas = canvasRef.current!
@@ -189,9 +169,6 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     }, [handlePointerDown, handlePointerMove, handlePointerUp])
 
     useImperativeHandle(ref, () => ({
-      toDataURL() {
-        return canvasRef.current?.toDataURL('image/png') ?? ''
-      },
       getStrokes() {
         return [...strokesRef.current]
       },

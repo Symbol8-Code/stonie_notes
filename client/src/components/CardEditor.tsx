@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { PenCanvas } from '@/components/PenCanvas'
+import { StrokePreview } from '@/components/StrokePreview'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { useInputModeContext } from '@/contexts/InputModeContext'
 import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId } from '@/utils/cardBlocks'
+import { isStrokeData, isLegacyPng, hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
 import type { Card, ContentBlock, SectionType } from '@/types/models'
 
@@ -51,13 +53,11 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
 
   // Build save data from current state
   const buildSaveData = useCallback((): CardEditorSaveData => {
-    // Finalize any active drawing canvases
+    // Finalize any active drawing canvases — capture strokes, not PNG
     const finalBlocks = blocks.map((block) => {
-      if (block.drawingContent === '') {
-        const handle = penCanvasRefs.current.get(block.id)
-        if (handle?.hasContent()) {
-          return { ...block, drawingContent: handle.toDataURL() }
-        }
+      const handle = penCanvasRefs.current.get(block.id)
+      if (handle?.hasContent()) {
+        return { ...block, drawingContent: handle.getStrokes() }
       }
       return block
     })
@@ -68,7 +68,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   // Debounced auto-save
   useEffect(() => {
     if (!onAutoSave) return
-    if (blocks.every((b) => !b.textContent.trim() && !b.drawingContent)) return
+    if (blocks.every((b) => !b.textContent.trim() && !hasDrawing(b.drawingContent))) return
 
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(() => {
@@ -109,10 +109,10 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
       if (mode === 'pen') {
         setBlocks((prev) =>
           prev.map((block) => {
-            if (block.id === activeBlockId && block.drawingContent === '') {
+            if (block.id === activeBlockId) {
               const handle = penCanvasRefs.current.get(block.id)
               if (handle?.hasContent()) {
-                return { ...block, drawingContent: handle.toDataURL() }
+                return { ...block, drawingContent: handle.getStrokes() }
               }
             }
             return block
@@ -190,10 +190,10 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
       if (mode === 'pen') {
         setBlocks((prev) =>
           prev.map((block) => {
-            if (block.id === activeBlockId && block.drawingContent === '') {
+            if (block.id === activeBlockId) {
               const handle = penCanvasRefs.current.get(block.id)
               if (handle?.hasContent()) {
-                return { ...block, drawingContent: handle.toDataURL() }
+                return { ...block, drawingContent: handle.getStrokes() }
               }
             }
             return block
@@ -288,7 +288,7 @@ function SectionBlock({
 }: SectionBlockProps) {
   const isHeading = block.type === 'heading'
   const showTextArea = isActive && mode === 'keyboard'
-  const showCanvas = isActive && mode === 'pen' && !block.drawingContent
+  const showCanvas = isActive && mode === 'pen'
 
   return (
     <div
@@ -323,7 +323,7 @@ function SectionBlock({
         </div>
       ) : (
         /* Text preview (shown when inactive or in pen mode with existing text) */
-        (block.textContent.trim() || (!isActive && !block.drawingContent)) && (
+        (block.textContent.trim() || (!isActive && !hasDrawing(block.drawingContent))) && (
           <div className="section-text-preview">
             {isHeading ? (
               block.textContent.trim() ? (
@@ -349,6 +349,7 @@ function SectionBlock({
             <PenCanvas
               ref={(handle) => registerPenRef(block.id, handle)}
               className={isHeading ? 'pen-canvas-title' : ''}
+              initialStrokes={isStrokeData(block.drawingContent) ? block.drawingContent : undefined}
             />
             <button
               className="pen-canvas-clear"
@@ -364,14 +365,21 @@ function SectionBlock({
         </div>
       )}
 
-      {/* Finalized drawing image */}
-      {block.drawingContent && !showCanvas && (
+      {/* Finalized drawing preview */}
+      {hasDrawing(block.drawingContent) && !showCanvas && (
         <div className="section-drawing-area">
-          <img
-            className={`block-drawing-image ${isHeading ? 'block-title-image' : ''}`}
-            src={block.drawingContent}
-            alt={isHeading ? 'Pen heading' : 'Drawing'}
-          />
+          {isStrokeData(block.drawingContent) ? (
+            <StrokePreview
+              strokes={block.drawingContent}
+              className={isHeading ? 'block-title-image' : 'block-drawing-image'}
+            />
+          ) : isLegacyPng(block.drawingContent) ? (
+            <img
+              className={`block-drawing-image ${isHeading ? 'block-title-image' : ''}`}
+              src={block.drawingContent}
+              alt={isHeading ? 'Pen heading' : 'Drawing'}
+            />
+          ) : null}
           {isActive && (
             <button
               className="pen-canvas-clear"

@@ -7,6 +7,7 @@
  */
 
 import type { ContentBlock, LegacyContentBlock } from '@/types/models'
+import { hasDrawing } from '@/types/models'
 
 let blockIdCounter = 0
 
@@ -154,24 +155,21 @@ export interface SerializedCard {
  */
 export function serializeBlocks(blocks: ContentBlock[]): SerializedCard {
   const nonEmpty = blocks.filter(
-    (b) => b.textContent.trim() !== '' || b.drawingContent !== '',
+    (b) => b.textContent.trim() !== '' || hasDrawing(b.drawingContent),
   )
 
-  // Derive title from first heading block
+  // Derive title from first heading block's text only.
+  // Stroke/drawing data stays in bodyText blocks, not in the title field.
   const firstHeading = nonEmpty.find((b) => b.type === 'heading')
   let title = 'Untitled'
-  if (firstHeading) {
-    if (firstHeading.textContent.trim()) {
-      title = firstHeading.textContent.trim()
-    } else if (firstHeading.drawingContent) {
-      title = firstHeading.drawingContent
-    }
+  if (firstHeading?.textContent.trim()) {
+    title = firstHeading.textContent.trim()
   }
 
   // Determine dominant source
-  const hasDrawing = nonEmpty.some((b) => b.drawingContent !== '')
+  const hasDrawingContent = nonEmpty.some((b) => hasDrawing(b.drawingContent))
   const hasText = nonEmpty.some((b) => b.textContent.trim() !== '')
-  const source: 'keyboard' | 'pen' = hasDrawing && !hasText ? 'pen' : 'keyboard'
+  const source: 'keyboard' | 'pen' = hasDrawingContent && !hasText ? 'pen' : 'keyboard'
 
   const bodyText = nonEmpty.length === 0 ? '' : JSON.stringify(nonEmpty)
 

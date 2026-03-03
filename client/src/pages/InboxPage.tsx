@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { CardEditor } from '@/components/CardEditor'
 import type { CardEditorSaveData } from '@/components/CardEditor'
+import { StrokePreview } from '@/components/StrokePreview'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { listCards, createCard, updateCard, archiveCard } from '@/services/api'
 import { parseBlocks } from '@/utils/cardBlocks'
+import { isStrokeData, isLegacyPng, hasDrawing } from '@/types/models'
 import type { Card } from '@/types/models'
 
 interface InboxPageProps {
@@ -231,12 +233,19 @@ function CardBodyPreview({ bodyText, title, source }: { bodyText: string; title:
               />
             )
           )}
-          {block.drawingContent && (
-            <img
-              className={block.type === 'heading' ? 'card-item-title-drawing' : 'card-item-drawing'}
-              src={block.drawingContent}
-              alt={block.type === 'heading' ? 'Pen heading' : 'Drawing'}
-            />
+          {hasDrawing(block.drawingContent) && (
+            isStrokeData(block.drawingContent) ? (
+              <StrokePreview
+                strokes={block.drawingContent}
+                className={block.type === 'heading' ? 'card-item-title-drawing' : 'card-item-drawing'}
+              />
+            ) : isLegacyPng(block.drawingContent) ? (
+              <img
+                className={block.type === 'heading' ? 'card-item-title-drawing' : 'card-item-drawing'}
+                src={block.drawingContent}
+                alt={block.type === 'heading' ? 'Pen heading' : 'Drawing'}
+              />
+            ) : null
           )}
         </div>
       ))}

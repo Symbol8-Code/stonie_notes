@@ -58,6 +58,13 @@ export interface StrokePoint {
   timestamp: number
 }
 
+/** A single pen stroke captured by PenCanvas. Lightweight version for card storage. */
+export interface PenStroke {
+  points: StrokePoint[]
+  color: string
+  width: number
+}
+
 export interface Stroke {
   id: string
   canvasId: string
@@ -89,8 +96,24 @@ export interface ContentBlock {
   type: SectionType
   /** Keyboard-entered text: plain text for headings, Markdown for body sections */
   textContent: string
-  /** PNG data URL from pen input. Empty string if no drawing. */
-  drawingContent: string
+  /** Stroke data (new format) or PNG data URL (legacy). Empty string if no drawing. */
+  drawingContent: PenStroke[] | string
+}
+
+/** Returns true if drawingContent is stroke data (new format) */
+export function isStrokeData(dc: PenStroke[] | string): dc is PenStroke[] {
+  return Array.isArray(dc)
+}
+
+/** Returns true if drawingContent is a legacy PNG data URL */
+export function isLegacyPng(dc: PenStroke[] | string): dc is string {
+  return typeof dc === 'string' && dc.startsWith('data:image/')
+}
+
+/** Returns true if the block has any drawing content (strokes or legacy PNG) */
+export function hasDrawing(dc: PenStroke[] | string): boolean {
+  if (Array.isArray(dc)) return dc.length > 0
+  return typeof dc === 'string' && dc.length > 0
 }
 
 /** @deprecated Legacy block format from before the section-based redesign */

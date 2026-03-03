@@ -171,10 +171,6 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
                 }}
               >
                 <div className="card-item-content">
-                  {/* Title — derived from first heading block via card.title */}
-                  <h3 className="card-item-title">{card.title || 'Untitled'}</h3>
-
-                  {/* Body — render non-heading blocks */}
                   <CardBodyPreview bodyText={card.bodyText} title={card.title} />
 
                   <span className="card-item-meta">
@@ -201,22 +197,20 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
   )
 }
 
-/** Renders card body content, skipping the first heading (already shown as card title) */
+/** Renders all card content blocks (heading + body) directly */
 function CardBodyPreview({ bodyText, title }: { bodyText: string; title: string }) {
   if (!bodyText) return null
 
   const blocks = parseBlocks(bodyText, title)
-  // Skip the first heading block — it's already displayed as the card title
-  const displayBlocks = blocks.filter((b, i) => !(i === 0 && b.type === 'heading'))
-  if (displayBlocks.length === 0) return null
+  if (blocks.length === 0) return null
 
   return (
     <div className="card-item-blocks">
-      {displayBlocks.map((block) => (
+      {blocks.map((block) => (
         <div key={block.id} className={`card-preview-section card-preview-${block.type}`}>
           {block.textContent.trim() && (
             block.type === 'heading' ? (
-              <h4 className="card-item-subheading">{block.textContent}</h4>
+              <h3 className="card-item-title">{block.textContent}</h3>
             ) : (
               <MarkdownPreview
                 content={block.textContent}

@@ -66,6 +66,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   const [drawingTool, setDrawingTool] = useState<DrawingToolState>(DEFAULT_DRAWING_TOOL)
   const [editorFullscreen, setEditorFullscreen] = useState(false)
   const [fullscreenBlockId, setFullscreenBlockId] = useState<string | null>(null)
+  const [penPaletteOpen, setPenPaletteOpen] = useState(true)
 
   const penCanvasRefs = useRef<Map<string, PenCanvasHandle>>(new Map())
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -271,20 +272,6 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
         </button>
       </div>
 
-      {/* Drawing palette — only in pen mode */}
-      {mode === 'pen' && (
-        <DrawingPalette
-          tool={drawingTool.tool}
-          color={drawingTool.color}
-          strokeWidth={drawingTool.strokeWidth}
-          lineStyle={drawingTool.lineStyle}
-          onToolChange={(tool) => setDrawingTool((prev) => ({ ...prev, tool }))}
-          onColorChange={(color) => setDrawingTool((prev) => ({ ...prev, color }))}
-          onStrokeWidthChange={(strokeWidth) => setDrawingTool((prev) => ({ ...prev, strokeWidth }))}
-          onLineStyleChange={(lineStyle) => setDrawingTool((prev) => ({ ...prev, lineStyle }))}
-        />
-      )}
-
       {/* Section list */}
       <div className="section-list">
         {blocks.map((block, index) => (
@@ -333,14 +320,52 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
     </div>
   )
 
+  const paletteSlider = mode === 'pen' ? createPortal(
+    <div className={`pen-palette-slider ${penPaletteOpen ? 'pen-palette-slider-open' : ''}`}>
+      <button
+        className="pen-palette-toggle"
+        onClick={() => setPenPaletteOpen((o) => !o)}
+        title={penPaletteOpen ? 'Close palette' : 'Open palette'}
+      >
+        {penPaletteOpen ? '\u203A' : '\u2039'}
+      </button>
+      <div className="pen-palette-slider-body">
+        <div className="pen-palette-slider-header">
+          <span className="pen-palette-slider-title">Pen Tools</span>
+        </div>
+        <DrawingPalette
+          tool={drawingTool.tool}
+          color={drawingTool.color}
+          strokeWidth={drawingTool.strokeWidth}
+          lineStyle={drawingTool.lineStyle}
+          onToolChange={(tool) => setDrawingTool((prev) => ({ ...prev, tool }))}
+          onColorChange={(color) => setDrawingTool((prev) => ({ ...prev, color }))}
+          onStrokeWidthChange={(strokeWidth) => setDrawingTool((prev) => ({ ...prev, strokeWidth }))}
+          onLineStyleChange={(lineStyle) => setDrawingTool((prev) => ({ ...prev, lineStyle }))}
+        />
+      </div>
+    </div>,
+    document.body,
+  ) : null
+
   if (editorFullscreen) {
-    return createPortal(
-      <div className="fullscreen-overlay">{editorContent}</div>,
-      document.body,
+    return (
+      <>
+        {createPortal(
+          <div className="fullscreen-overlay">{editorContent}</div>,
+          document.body,
+        )}
+        {paletteSlider}
+      </>
     )
   }
 
-  return editorContent
+  return (
+    <>
+      {editorContent}
+      {paletteSlider}
+    </>
+  )
 }
 
 /* ── SectionBlock ─────────────────────────────── */

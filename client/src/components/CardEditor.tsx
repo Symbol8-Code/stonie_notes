@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { PenCanvas } from '@/components/PenCanvas'
 import { StrokePreview } from '@/components/StrokePreview'
 import { RichTextEditor } from '@/components/RichTextEditor'
@@ -63,6 +64,8 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   })
   const [mode, setMode] = useState<EditorMode>(initialMode)
   const [drawingTool, setDrawingTool] = useState<DrawingToolState>(DEFAULT_DRAWING_TOOL)
+  const [editorFullscreen, setEditorFullscreen] = useState(false)
+  const [fullscreenBlockId, setFullscreenBlockId] = useState<string | null>(null)
 
   const penCanvasRefs = useRef<Map<string, PenCanvasHandle>>(new Map())
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -106,14 +109,20 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
-        onCancel()
+        if (fullscreenBlockId) {
+          setFullscreenBlockId(null)
+        } else if (editorFullscreen) {
+          setEditorFullscreen(false)
+        } else {
+          onCancel()
+        }
       }
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault()
         handleSave()
       }
     },
-    [onCancel, handleSave],
+    [onCancel, handleSave, editorFullscreen, fullscreenBlockId],
   )
 
   /** Finalize active drawing and switch mode */
@@ -222,23 +231,43 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
     [activeBlockId, mode],
   )
 
-  return (
+  const editorContent = (
     <div className="card-editor" onKeyDown={handleKeyDown}>
-      {/* Mode toggle */}
-      <div className="card-editor-mode-toggle">
+      {/* Mode toggle + fullscreen toggle */}
+      <div className="card-editor-header">
+        <div className="card-editor-mode-toggle">
+          <button
+            className={`btn-mode ${mode === 'keyboard' ? 'active' : ''}`}
+            onClick={() => handleModeSwitch('keyboard')}
+            title="Type with keyboard"
+          >
+            Keyboard
+          </button>
+          <button
+            className={`btn-mode ${mode === 'pen' ? 'active' : ''}`}
+            onClick={() => handleModeSwitch('pen')}
+            title="Draw with pen"
+          >
+            Pen
+          </button>
+        </div>
         <button
-          className={`btn-mode ${mode === 'keyboard' ? 'active' : ''}`}
-          onClick={() => handleModeSwitch('keyboard')}
-          title="Type with keyboard"
+          className="btn-fullscreen"
+          onClick={() => {
+            // Finalize active drawing before toggling so strokes persist
+            const handle = penCanvasRefs.current.get(activeBlockId)
+            if (handle?.hasContent()) {
+              setBlocks((prev) =>
+                prev.map((b) =>
+                  b.id === activeBlockId ? { ...b, drawingContent: handle.getStrokes() } : b,
+                ),
+              )
+            }
+            setEditorFullscreen((f) => !f)
+          }}
+          title={editorFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         >
-          Keyboard
-        </button>
-        <button
-          className={`btn-mode ${mode === 'pen' ? 'active' : ''}`}
-          onClick={() => handleModeSwitch('pen')}
-          title="Draw with pen"
-        >
-          Pen
+          {editorFullscreen ? '\u2716' : '\u26F6'}
         </button>
       </div>
 
@@ -271,6 +300,19 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
               onClearDrawing={() => handleClearDrawing(block.id)}
               canDelete={blocks.length > 1}
               registerPenRef={registerPenRef}
+              isFullscreen={fullscreenBlockId === block.id}
+              onToggleFullscreen={() => {
+                // Finalize drawing before toggling so strokes persist across mount/unmount
+                const handle = penCanvasRefs.current.get(block.id)
+                if (handle?.hasContent()) {
+                  setBlocks((prev) =>
+                    prev.map((b) =>
+                      b.id === block.id ? { ...b, drawingContent: handle.getStrokes() } : b,
+                    ),
+                  )
+                }
+                setFullscreenBlockId((prev) => (prev === block.id ? null : block.id))
+              }}
             />
             <AddSectionButton
               onAdd={(sectionType) => handleAddSection(sectionType, index + 1)}
@@ -290,6 +332,15 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
       </div>
     </div>
   )
+
+  if (editorFullscreen) {
+    return createPortal(
+      <div className="fullscreen-overlay">{editorContent}</div>,
+      document.body,
+    )
+  }
+
+  return editorContent
 }
 
 /* ── SectionBlock ─────────────────────────────── */
@@ -305,6 +356,8 @@ interface SectionBlockProps {
   onClearDrawing: () => void
   canDelete: boolean
   registerPenRef: (blockId: string, handle: PenCanvasHandle | null) => void
+  isFullscreen: boolean
+  onToggleFullscreen: () => void
 }
 
 function SectionBlock({
@@ -318,19 +371,47 @@ function SectionBlock({
   onClearDrawing,
   canDelete,
   registerPenRef,
+  isFullscreen,
+  onToggleFullscreen,
 }: SectionBlockProps) {
   const isHeading = block.type === 'heading'
   const showTextArea = isActive && mode === 'keyboard'
   const showCanvas = isActive && mode === 'pen'
 
-  return (
+  const sectionContent = (
     <div
       className={`content-section section-${block.type} ${isActive ? 'section-active' : ''}`}
       onClick={onActivate}
     >
-      {/* Section type label */}
-      <div className="section-label">
-        {isHeading ? 'Heading' : 'Body'}
+      {/* Section type label + action buttons */}
+      <div className="section-header">
+        <div className="section-label">
+          {isHeading ? 'Heading' : 'Body'}
+        </div>
+        <div className="section-header-actions">
+          <button
+            className="btn-fullscreen"
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleFullscreen()
+            }}
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen section'}
+          >
+            {isFullscreen ? '\u2716' : '\u26F6'}
+          </button>
+          {canDelete && !isFullscreen && (
+            <button
+              className="btn-section-delete"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete()
+              }}
+              title="Remove section"
+            >
+              &times;
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Text sub-area */}
@@ -425,21 +506,17 @@ function SectionBlock({
         </div>
       )}
 
-      {/* Delete section button */}
-      {canDelete && (
-        <button
-          className="block-delete"
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete()
-          }}
-          title="Remove section"
-        >
-          &times;
-        </button>
-      )}
     </div>
   )
+
+  if (isFullscreen) {
+    return createPortal(
+      <div className="fullscreen-overlay">{sectionContent}</div>,
+      document.body,
+    )
+  }
+
+  return sectionContent
 }
 
 /* ── AddSectionButton ─────────────────────────── */

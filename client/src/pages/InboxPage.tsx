@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { CardEditor } from '@/components/CardEditor'
 import type { CardEditorSaveData } from '@/components/CardEditor'
 import { StrokePreview } from '@/components/StrokePreview'
@@ -28,26 +28,32 @@ interface InboxPageProps {
  * CardEditor reads input mode from InputModeContext automatically.
  * See DESIGN.md Section 4.4 (Search & Organization — Inbox).
  */
+type SortField = 'updatedAt' | 'createdAt' | 'title'
+type SortDir = 'desc' | 'asc'
+
 export function InboxPage({ startCreating = false, onCreatingDone }: InboxPageProps) {
   const [cards, setCards] = useState<Card[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
+  const [sortField, setSortField] = useState<SortField>('updatedAt')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
   const { online, syncing, syncGeneration } = useOnlineContext()
 
   const fetchCards = useCallback(async () => {
     try {
       setError(null)
+      const opts = showArchived ? { status: 'archived' } : undefined
       if (navigator.onLine) {
-        const data = await listCards()
+        const data = await listCards(opts)
         setCards(data)
-        // Populate the cache for offline use
-        cacheCards(data).catch(() => {})
+        // Only populate cache when viewing non-archived (normal) cards
+        if (!showArchived) cacheCards(data).catch(() => {})
       } else {
         // Serve from IndexedDB cache when offline
         const cached = await getCachedCards()
-        // Sort newest-first like the server does
         cached.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         setCards(cached)
       }
@@ -63,9 +69,10 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [showArchived])
 
   useEffect(() => {
+    setLoading(true)
     fetchCards()
   }, [fetchCards])
 
@@ -205,15 +212,73 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
     }
   }, [])
 
+  const handleRestore = useCallback(async (id: string) => {
+    if (navigator.onLine) {
+      try {
+        await updateCard(id, { status: 'open' })
+        setCards((prev) => prev.filter((c) => c.id !== id))
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to restore card')
+      }
+    } else {
+      setCards((prev) => prev.filter((c) => c.id !== id))
+      enqueue('update', id, { status: 'open' }).catch(() => {})
+    }
+  }, [])
+
+  const sortedCards = useMemo(() => {
+    const sorted = [...cards]
+    sorted.sort((a, b) => {
+      let cmp: number
+      if (sortField === 'title') {
+        cmp = (a.title || '').localeCompare(b.title || '')
+      } else {
+        cmp = new Date(a[sortField]).getTime() - new Date(b[sortField]).getTime()
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [cards, sortField, sortDir])
+
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Inbox</h1>
-        {!creating && (
+        <h1>{showArchived ? 'Archived' : 'Inbox'}</h1>
+        {!creating && !showArchived && (
           <button className="btn btn-primary" onClick={() => setCreating(true)}>
             + New Note
           </button>
         )}
+      </div>
+
+      <div className="inbox-toolbar">
+        <label className="inbox-filter-toggle">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(e) => setShowArchived(e.target.checked)}
+          />
+          Show archived
+        </label>
+        <div className="inbox-sort-controls">
+          <select
+            className="inbox-sort-select"
+            value={sortField}
+            onChange={(e) => setSortField(e.target.value as SortField)}
+          >
+            <option value="updatedAt">Updated</option>
+            <option value="createdAt">Created</option>
+            <option value="title">Title</option>
+          </select>
+          <button
+            className="inbox-sort-dir"
+            onClick={() => setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
+            aria-label={`Sort ${sortDir === 'desc' ? 'ascending' : 'descending'}`}
+            title={sortDir === 'desc' ? 'Newest first' : 'Oldest first'}
+          >
+            {sortDir === 'desc' ? '\u2193' : '\u2191'}
+          </button>
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -227,15 +292,17 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
 
       {loading && <p className="placeholder">Loading cards...</p>}
 
-      {!loading && cards.length === 0 && !creating && (
+      {!loading && sortedCards.length === 0 && !creating && (
         <p className="placeholder">
-          No notes yet. Create one with the <strong>+ New Note</strong> button, <kbd>Alt+N</kbd>, or the + button.
+          {showArchived
+            ? 'No archived notes.'
+            : <>No notes yet. Create one with the <strong>+ New Note</strong> button, <kbd>Alt+N</kbd>, or the + button.</>}
         </p>
       )}
 
-      {cards.length > 0 && (
+      {sortedCards.length > 0 && (
         <div className="card-list">
-          {cards.map((card) => {
+          {sortedCards.map((card) => {
             const isLocal = card.id.startsWith('local-')
             const isSyncing = isLocal && syncing
 
@@ -267,7 +334,20 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
                     {isLocal && !syncing && <span className="card-local-pill">Pending</span>}
                   </span>
                 </div>
-                {!isSyncing && (
+                {!isSyncing && showArchived && (
+                  <button
+                    className="card-item-restore"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleRestore(card.id)
+                    }}
+                    aria-label={`Restore "${card.title}"`}
+                    title="Restore"
+                  >
+                    &#x21A9;
+                  </button>
+                )}
+                {!isSyncing && !showArchived && (
                   <button
                     className="card-item-archive"
                     onClick={(e) => {

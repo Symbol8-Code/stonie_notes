@@ -1263,6 +1263,65 @@ kbd {
 
 /* ── Card List ────────────────────────────────── */
 
+/* ── Inbox toolbar (filter + sort) ─────────────── */
+
+.inbox-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.inbox-filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.inbox-filter-toggle input[type="checkbox"] {
+  accent-color: var(--color-accent);
+}
+
+.inbox-sort-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.inbox-sort-select {
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.inbox-sort-dir {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.inbox-sort-dir:hover {
+  background: var(--color-surface);
+}
+
 .card-list {
   display: flex;
   flex-direction: column;
@@ -1349,6 +1408,27 @@ kbd {
 .card-item-archive:hover {
   background: #fef2f2;
   color: #991b1b;
+}
+
+.card-item-restore {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.card-item-restore:hover {
+  background: #f0fdf4;
+  color: #166534;
 }
 
 /* Syncing / pending local card states */
@@ -1491,7 +1571,8 @@ kbd {
   font-size: 15px;
 }
 
-.input-touch .card-item-archive {
+.input-touch .card-item-archive,
+.input-touch .card-item-restore {
   width: 36px;
   height: 36px;
   font-size: 22px;

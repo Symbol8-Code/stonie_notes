@@ -22,8 +22,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ── Cards ──────────────────────────────────────────
 
-export function listCards(): Promise<Card[]> {
-  return request('/v1/cards')
+export function listCards(opts?: { status?: string }): Promise<Card[]> {
+  const params = new URLSearchParams()
+  if (opts?.status) params.set('status', opts.status)
+  const qs = params.toString()
+  return request(`/v1/cards${qs ? `?${qs}` : ''}`)
 }
 
 export function getCard(id: string): Promise<Card> {

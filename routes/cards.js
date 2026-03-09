@@ -6,7 +6,7 @@
 const express = require('express');
 const { db } = require('../db');
 const { cards } = require('../db/schema');
-const { eq, desc, sql } = require('drizzle-orm');
+const { eq, ne, desc, sql } = require('drizzle-orm');
 
 const router = express.Router();
 
@@ -68,10 +68,13 @@ router.get('/', async (req, res) => {
   const status = req.query.status;
 
   try {
-    let query = db.select().from(cards).orderBy(desc(cards.updatedAt)).limit(limit).offset(offset);
+    let query;
 
     if (status && VALID_STATUSES.includes(status)) {
       query = db.select().from(cards).where(eq(cards.status, status)).orderBy(desc(cards.updatedAt)).limit(limit).offset(offset);
+    } else {
+      // By default, exclude archived cards
+      query = db.select().from(cards).where(ne(cards.status, 'archived')).orderBy(desc(cards.updatedAt)).limit(limit).offset(offset);
     }
 
     const results = await query;

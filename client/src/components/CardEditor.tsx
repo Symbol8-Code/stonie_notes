@@ -10,6 +10,7 @@ import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId } from '@/util
 import { hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
 import { interpretCanvas, getExtractions } from '@/services/api'
+import { useOnlineContext } from '@/contexts/OnlineContext'
 import type { CanvasInterpretation } from '@/services/api'
 import type { Card, ContentBlock, SectionType, StrokeTool, LineStyle } from '@/types/models'
 
@@ -52,6 +53,7 @@ interface CardEditorProps {
  */
 export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorProps) {
   const { mode: inputMode } = useInputModeContext()
+  const { online } = useOnlineContext()
   const initialMode: EditorMode = inputMode === 'pen' ? 'pen' : 'keyboard'
 
   const [blocks, setBlocks] = useState<ContentBlock[]>(() => {
@@ -310,6 +312,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
               isFullscreen={fullscreenBlockId === block.id}
               penCanvasRefs={penCanvasRefs}
               cardId={card?.id}
+              online={online}
               savedInterpretation={block.type === 'body' ? savedInterpretation : null}
               cardUpdatedAt={card?.updatedAt}
               extractionCreatedAt={savedExtractionCreatedAt}
@@ -410,6 +413,7 @@ interface SectionBlockProps {
   onToggleFullscreen: () => void
   penCanvasRefs: React.RefObject<Map<string, PenCanvasHandle>>
   cardId?: string
+  online: boolean
   savedInterpretation?: CanvasInterpretation | null
   cardUpdatedAt?: string
   extractionCreatedAt?: string | null
@@ -430,6 +434,7 @@ function SectionBlock({
   onToggleFullscreen,
   penCanvasRefs,
   cardId,
+  online,
   savedInterpretation: initialInterpretation,
   cardUpdatedAt,
   extractionCreatedAt,
@@ -661,10 +666,10 @@ function SectionBlock({
               e.stopPropagation()
               handleInterpret()
             }}
-            disabled={interpreting}
-            title="Send drawing to AI for interpretation"
+            disabled={interpreting || !online}
+            title={online ? 'Send drawing to AI for interpretation' : 'Interpret is unavailable offline'}
           >
-            {interpreting ? 'Interpreting...' : 'Interpret Drawing'}
+            {interpreting ? 'Interpreting...' : online ? 'Interpret Drawing' : 'Interpret (offline)'}
           </button>
         </div>
       )}

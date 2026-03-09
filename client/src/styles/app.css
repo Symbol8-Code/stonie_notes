@@ -397,6 +397,12 @@ kbd {
   font-size: 14px;
 }
 
+/* ── Offline pill ─────────────────────────────── */
+
+.input-badge-offline {
+  background: #d97706;
+}
+
 /* ── Card Editor ──────────────────────────────── */
 
 .card-editor {
@@ -1343,6 +1349,43 @@ kbd {
 .card-item-archive:hover {
   background: #fef2f2;
   color: #991b1b;
+}
+
+/* Syncing / pending local card states */
+.card-item-syncing {
+  opacity: 0.6;
+  pointer-events: none;
+  cursor: default;
+}
+
+.card-sync-pill,
+.card-local-pill {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.card-sync-pill {
+  color: white;
+  background: var(--color-accent);
+  animation: sync-pulse 1.2s ease-in-out infinite;
+}
+
+.card-local-pill {
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+}
+
+@keyframes sync-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* ── Tablet (768px – 1199px) ───────────────────── */

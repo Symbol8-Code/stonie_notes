@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useDeviceType } from '@/hooks/useMediaQuery'
 import { useInputModeContext } from '@/contexts/InputModeContext'
+import { useOnlineContext } from '@/contexts/OnlineContext'
 
 interface SidebarProps {
   activePage: string
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
  */
 export function Sidebar({ activePage, onNavigate }: SidebarProps) {
   const { mode: inputMode, capabilities } = useInputModeContext()
+  const { online } = useOnlineContext()
   const device = useDeviceType()
   const [collapsed, setCollapsed] = useState(device === 'tablet')
 
@@ -73,17 +75,24 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
           </button>
         )}
         {!isCollapsed && (
-          <span
-            className={`input-badge input-badge-${inputMode}`}
-            title={`Active: ${inputMode} | Capabilities: ${[
-              capabilities.hasTouch && 'touch',
-              capabilities.hasPen && 'pen',
-              capabilities.hasMouse && 'mouse',
-              capabilities.hasKeyboard && 'keyboard',
-            ].filter(Boolean).join(', ')}`}
-          >
-            {INPUT_MODE_ICONS[inputMode] ?? inputMode}
-          </span>
+          <>
+            <span
+              className={`input-badge input-badge-${inputMode}`}
+              title={`Active: ${inputMode} | Capabilities: ${[
+                capabilities.hasTouch && 'touch',
+                capabilities.hasPen && 'pen',
+                capabilities.hasMouse && 'mouse',
+                capabilities.hasKeyboard && 'keyboard',
+              ].filter(Boolean).join(', ')}`}
+            >
+              {INPUT_MODE_ICONS[inputMode] ?? inputMode}
+            </span>
+            {!online && (
+              <span className="input-badge input-badge-offline" title="You are offline. Changes will sync when you reconnect.">
+                Offline
+              </span>
+            )}
+          </>
         )}
       </div>
 

@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from 'react'
 import { InputModeProvider, useInputModeContext } from '@/contexts/InputModeContext'
+import { OnlineProvider } from '@/contexts/OnlineContext'
 import { Sidebar } from '@/components/Sidebar'
 import { FloatingActionButton } from '@/components/FloatingActionButton'
 import { InboxPage } from '@/pages/InboxPage'
@@ -103,7 +104,9 @@ function AppShell() {
 function App() {
   return (
     <InputModeProvider>
-      <AppShell />
+      <OnlineProvider>
+        <AppShell />
+      </OnlineProvider>
     </InputModeProvider>
   )
 }

@@ -680,6 +680,10 @@ kbd {
   max-height: 50px;
 }
 
+.section-heading .section-drawing-area .pen-canvas-zoom-wrapper.pen-canvas-title .pen-canvas {
+  height: 64px;
+}
+
 /* ── Add Section Button ─────────────────────── */
 
 .add-section-trigger {
@@ -1154,6 +1158,14 @@ kbd {
   margin-top: 0;
 }
 
+.pen-canvas-zoom-wrapper {
+  position: relative;
+}
+
+.pen-canvas-zoom-wrapper:focus {
+  outline: none;
+}
+
 .pen-canvas {
   width: 100%;
   height: 220px;
@@ -1164,8 +1176,65 @@ kbd {
   display: block;
 }
 
-.pen-canvas-title {
+.pen-canvas-zoom-wrapper.pen-canvas-title .pen-canvas {
   height: 64px;
+}
+
+.pen-canvas-zoom-wrapper.pen-canvas-title .pen-canvas-zoom-controls {
+  display: none;
+}
+
+.pen-canvas-zoom-controls {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 2px 4px;
+  z-index: 2;
+}
+
+.pen-canvas-zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.pen-canvas-zoom-btn:hover {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+}
+
+.pen-canvas-zoom-reset {
+  width: auto;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-full);
+}
+
+.pen-canvas-zoom-level {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  min-width: 32px;
+  text-align: center;
+  user-select: none;
 }
 
 .pen-canvas-clear {
@@ -1334,7 +1403,7 @@ kbd {
   height: 280px;
 }
 
-.input-pen .pen-canvas-title {
+.input-pen .pen-canvas-zoom-wrapper.pen-canvas-title .pen-canvas {
   height: 80px;
 }
 
@@ -1470,6 +1539,10 @@ kbd {
 .fullscreen-overlay .section-text-area .rte-textarea {
   flex: 1;
   min-height: 200px;
+}
+
+.fullscreen-overlay .pen-canvas-zoom-wrapper {
+  flex: 1;
 }
 
 .fullscreen-overlay .pen-canvas {

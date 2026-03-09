@@ -46,8 +46,27 @@
         var ctx;
         var offset;
 
+        // Offscreen canvas stores the actual drawing at 1:1 scale
+        var drawCanvas;
+        var drawCtx;
+
+        // Zoom and pan state
+        var scale = 1.0;
+        var panX = 0;
+        var panY = 0;
+        var MIN_SCALE = 0.25;
+        var MAX_SCALE = 5.0;
+        var ZOOM_STEP = 0.1;
+
+        // Pinch-to-zoom tracking
+        var activePointers = {};
+        var lastPinchDist = null;
+        var lastPinchCenter = null;
+        var isPinching = false;
+
         async function sendCanvasToBackend() {
-            const canvasData = canvas.toDataURL("image/png");
+            // Export the offscreen drawing canvas (full resolution, no zoom)
+            const canvasData = drawCanvas.toDataURL("image/png");
             const canvasTitle = document.getElementById('canvas-title').value;
             console.log("Canvas Data: ", canvasData)
 
@@ -72,6 +91,52 @@
             }
         }
 
+        // Convert screen coordinates to drawing coordinates (accounting for zoom/pan)
+        function screenToDrawing(sx, sy) {
+            return {
+                x: (sx - panX) / scale,
+                y: (sy - panY) / scale
+            };
+        }
+
+        // Render the offscreen drawing canvas onto the visible canvas with zoom/pan
+        function renderView() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(panX, panY);
+            ctx.scale(scale, scale);
+            ctx.drawImage(drawCanvas, 0, 0);
+            ctx.restore();
+            updateZoomDisplay();
+        }
+
+        function updateZoomDisplay() {
+            var el = document.getElementById('zoom-level');
+            if (el) el.textContent = Math.round(scale * 100) + '%';
+        }
+
+        // Zoom centered on a given screen point
+        function zoomAt(screenX, screenY, newScale) {
+            newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+            // Adjust pan so the point under the cursor stays fixed
+            panX = screenX - (screenX - panX) * (newScale / scale);
+            panY = screenY - (screenY - panY) * (newScale / scale);
+            scale = newScale;
+            renderView();
+        }
+
+        // Zoom centered on the canvas center
+        function zoomCenter(newScale) {
+            zoomAt(canvas.width / 2, canvas.height / 2, newScale);
+        }
+
+        function resetZoom() {
+            scale = 1.0;
+            panX = 0;
+            panY = 0;
+            renderView();
+        }
+
         function init() {
             canvas = document.getElementById("mycanvas");
             ctx = canvas.getContext("2d");
@@ -83,44 +148,139 @@
             canvas.width = canvas.offsetWidth;
             canvas.height = canvas.offsetHeight;
 
-            // Fill the canvas with a white background
-            ctx.fillStyle = "#FFFFFF";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Create offscreen drawing canvas at the same size
+            drawCanvas = document.createElement("canvas");
+            drawCanvas.width = canvas.width;
+            drawCanvas.height = canvas.height;
+            drawCtx = drawCanvas.getContext("2d");
+
+            // Fill the drawing canvas with a white background
+            drawCtx.fillStyle = "#FFFFFF";
+            drawCtx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+
+            // Initial render
+            renderView();
 
             if (window.PointerEvent) {
-                canvas.addEventListener("pointerdown", function () {
-                    canvas.addEventListener("pointermove", draw, false);
-                }
-                    , false);
-                canvas.addEventListener("pointerup", endPointer, false);
-            }
-            else {
-                //Provide fallback for user agents that do not support Pointer Events
+                canvas.addEventListener("pointerdown", onPointerDown, false);
+                canvas.addEventListener("pointermove", onPointerMove, false);
+                canvas.addEventListener("pointerup", onPointerUp, false);
+                canvas.addEventListener("pointercancel", onPointerUp, false);
+            } else {
                 canvas.addEventListener("mousedown", function () {
                     canvas.addEventListener("mousemove", draw, false);
-                }
-                    , false);
+                }, false);
                 canvas.addEventListener("mouseup", endPointer, false);
+            }
+
+            // Keyboard zoom: + / - / 0 (reset)
+            document.addEventListener("keydown", function (e) {
+                if (e.key === '+' || e.key === '=') {
+                    zoomCenter(scale + ZOOM_STEP);
+                    e.preventDefault();
+                } else if (e.key === '-' || e.key === '_') {
+                    zoomCenter(scale - ZOOM_STEP);
+                    e.preventDefault();
+                } else if (e.key === '0') {
+                    resetZoom();
+                    e.preventDefault();
+                }
+            }, false);
+
+            // Mouse wheel zoom (Ctrl+wheel or trackpad pinch which fires wheel)
+            canvas.addEventListener("wheel", function (e) {
+                e.preventDefault();
+                var rect = canvas.getBoundingClientRect();
+                var sx = e.clientX - rect.left;
+                var sy = e.clientY - rect.top;
+                var delta = -e.deltaY * 0.001;
+                zoomAt(sx, sy, scale * (1 + delta));
+            }, { passive: false });
+        }
+
+        // --- Pointer event handlers (support both drawing and pinch-to-zoom) ---
+
+        function onPointerDown(e) {
+            activePointers[e.pointerId] = { x: e.pageX - offset["left"], y: e.pageY - offset["top"] };
+            var pointerIds = Object.keys(activePointers);
+
+            if (pointerIds.length === 2) {
+                // Two fingers down - start pinch
+                isPinching = true;
+                lastPt = null; // cancel any single-finger drawing
+                var p1 = activePointers[pointerIds[0]];
+                var p2 = activePointers[pointerIds[1]];
+                lastPinchDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+                lastPinchCenter = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+            } else if (pointerIds.length === 1) {
+                isPinching = false;
             }
         }
 
-        // Event handler called for each pointerdown event:
-        function draw(e) {
+        function onPointerMove(e) {
+            var sx = e.pageX - offset["left"];
+            var sy = e.pageY - offset["top"];
 
-            pointX = e.pageX - offset["left"]
-            pointY = e.pageY - offset["top"]
+            if (activePointers[e.pointerId] !== undefined) {
+                activePointers[e.pointerId] = { x: sx, y: sy };
+            }
+
+            var pointerIds = Object.keys(activePointers);
+
+            if (isPinching && pointerIds.length === 2) {
+                // Pinch zoom
+                var p1 = activePointers[pointerIds[0]];
+                var p2 = activePointers[pointerIds[1]];
+                var dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+                var center = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+
+                if (lastPinchDist !== null) {
+                    var zoomFactor = dist / lastPinchDist;
+                    // Pan so the pinch center stays fixed
+                    panX += center.x - lastPinchCenter.x;
+                    panY += center.y - lastPinchCenter.y;
+                    zoomAt(center.x, center.y, scale * zoomFactor);
+                }
+
+                lastPinchDist = dist;
+                lastPinchCenter = center;
+            } else if (!isPinching && pointerIds.length === 1 && activePointers[e.pointerId] !== undefined) {
+                // Single finger/pen drawing
+                draw(e);
+            }
+        }
+
+        function onPointerUp(e) {
+            delete activePointers[e.pointerId];
+            var pointerIds = Object.keys(activePointers);
+
+            if (pointerIds.length < 2) {
+                isPinching = false;
+                lastPinchDist = null;
+                lastPinchCenter = null;
+            }
+
+            if (pointerIds.length === 0) {
+                lastPt = null;
+            }
+        }
+
+        // Draw on the offscreen canvas at 1:1 coordinates
+        function draw(e) {
+            var sx = e.pageX - offset["left"];
+            var sy = e.pageY - offset["top"];
+
+            // Convert screen coordinates to drawing coordinates
+            var pt = screenToDrawing(sx, sy);
 
             if (lastPt != null) {
-                ctx.beginPath();
-                // Start at previous point
-                ctx.moveTo(lastPt.x, lastPt.y);
-                // Line to latest point
-                ctx.lineTo(pointX, pointY);
-                // Draw it!
-                ctx.stroke();
+                drawCtx.beginPath();
+                drawCtx.moveTo(lastPt.x, lastPt.y);
+                drawCtx.lineTo(pt.x, pt.y);
+                drawCtx.stroke();
+                renderView();
             }
-            //Store latest pointer
-            lastPt = { x: pointX, y: pointY };
+            lastPt = { x: pt.x, y: pt.y };
         }
 
         function getOffset(obj) {
@@ -137,11 +297,8 @@
         }
 
         function endPointer(e) {
-            //Stop tracking the pointermove (and mousemove) events
             canvas.removeEventListener("pointermove", draw, false);
             canvas.removeEventListener("mousemove", draw, false);
-
-            //Set last point to null to end our pointer path
             lastPt = null;
         }
 
@@ -156,7 +313,20 @@
         <canvas id="mycanvas"></canvas>
         <div id="controls">
             <button onclick="sendCanvasToBackend()">Save Canvas</button>
-
+            <hr>
+            <div style="margin-top: 10px;">
+                <strong>Zoom</strong>
+                <div style="margin-top: 5px;">
+                    <button onclick="zoomCenter(scale + 0.1)">+</button>
+                    <span id="zoom-level">100%</span>
+                    <button onclick="zoomCenter(scale - 0.1)">-</button>
+                </div>
+                <button onclick="resetZoom()" style="margin-top: 5px;">Reset (0)</button>
+                <p style="font-size: 11px; color: #666; margin-top: 8px;">
+                    Keys: +/- to zoom, 0 to reset<br>
+                    Pinch to zoom on touch devices
+                </p>
+            </div>
         </div>
     </div>
 </body>

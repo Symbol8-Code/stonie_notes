@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { PenCanvas } from '@/components/PenCanvas'
 import { StrokePreview } from '@/components/StrokePreview'
@@ -9,6 +9,8 @@ import { useInputModeContext } from '@/contexts/InputModeContext'
 import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId } from '@/utils/cardBlocks'
 import { hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
+import { interpretCanvas } from '@/services/api'
+import type { CanvasInterpretation } from '@/services/api'
 import type { Card, ContentBlock, SectionType, StrokeTool, LineStyle } from '@/types/models'
 
 type EditorMode = 'keyboard' | 'pen'
@@ -288,6 +290,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
               canDelete={blocks.length > 1}
               registerPenRef={registerPenRef}
               isFullscreen={fullscreenBlockId === block.id}
+              penCanvasRefs={penCanvasRefs}
               onToggleFullscreen={() => {
                 // Finalize drawing before toggling so strokes persist across mount/unmount
                 const handle = penCanvasRefs.current.get(block.id)
@@ -383,6 +386,7 @@ interface SectionBlockProps {
   registerPenRef: (blockId: string, handle: PenCanvasHandle | null) => void
   isFullscreen: boolean
   onToggleFullscreen: () => void
+  penCanvasRefs: React.RefObject<Map<string, PenCanvasHandle>>
 }
 
 function SectionBlock({
@@ -398,10 +402,67 @@ function SectionBlock({
   registerPenRef,
   isFullscreen,
   onToggleFullscreen,
+  penCanvasRefs,
 }: SectionBlockProps) {
   const isHeading = block.type === 'heading'
   const showTextArea = isActive && mode === 'keyboard'
   const showCanvas = isActive && mode === 'pen'
+
+  const [interpreting, setInterpreting] = useState(false)
+  const [interpretation, setInterpretation] = useState<CanvasInterpretation | null>(null)
+  const [interpretError, setInterpretError] = useState<string | null>(null)
+
+  const handleInterpret = useCallback(async () => {
+    // Get the canvas data URL from the active PenCanvas or from stored strokes
+    const handle = penCanvasRefs.current.get(block.id)
+    let dataUrl = ''
+    if (handle?.hasContent()) {
+      dataUrl = handle.toDataURL()
+    }
+    if (!dataUrl && hasDrawing(block.drawingContent)) {
+      // Render stored strokes to an offscreen canvas
+      const strokes = block.drawingContent
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      for (const stroke of strokes) {
+        for (const p of stroke.points) {
+          if (p.x < minX) minX = p.x
+          if (p.y < minY) minY = p.y
+          if (p.x > maxX) maxX = p.x
+          if (p.y > maxY) maxY = p.y
+        }
+      }
+      const pad = 20
+      const w = Math.max(maxX - minX + pad * 2, 100)
+      const h = Math.max(maxY - minY + pad * 2, 100)
+      const offscreen = document.createElement('canvas')
+      offscreen.width = w
+      offscreen.height = h
+      const ctx = offscreen.getContext('2d')!
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, w, h)
+      ctx.translate(-minX + pad, -minY + pad)
+      const { drawStroke } = await import('@/utils/strokeRenderer')
+      for (const stroke of strokes) {
+        drawStroke(ctx, stroke)
+      }
+      dataUrl = offscreen.toDataURL('image/png')
+    }
+
+    if (!dataUrl) return
+
+    setInterpreting(true)
+    setInterpretError(null)
+    try {
+      const result = await interpretCanvas(dataUrl)
+      setInterpretation(result)
+    } catch (err) {
+      setInterpretError(err instanceof Error ? err.message : 'Interpretation failed')
+    } finally {
+      setInterpreting(false)
+    }
+  }, [block.id, block.drawingContent, penCanvasRefs])
+
+  const hasDrawingContent = hasDrawing(block.drawingContent) || (isActive && mode === 'pen')
 
   const sectionContent = (
     <div
@@ -531,6 +592,44 @@ function SectionBlock({
         </div>
       )}
 
+      {/* Interpret drawing button */}
+      {isActive && !isHeading && hasDrawingContent && (
+        <div className="section-interpret-area">
+          <button
+            className="btn btn-interpret"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleInterpret()
+            }}
+            disabled={interpreting}
+            title="Send drawing to AI for interpretation"
+          >
+            {interpreting ? 'Interpreting...' : 'Interpret Drawing'}
+          </button>
+        </div>
+      )}
+
+      {/* Interpretation result */}
+      {interpretation && (
+        <InterpretationResult
+          interpretation={interpretation}
+          onDismiss={() => setInterpretation(null)}
+        />
+      )}
+
+      {/* Interpretation error */}
+      {interpretError && (
+        <div className="interpret-error">
+          {interpretError}
+          <button
+            className="interpret-error-dismiss"
+            onClick={() => setInterpretError(null)}
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
     </div>
   )
 
@@ -542,6 +641,90 @@ function SectionBlock({
   }
 
   return sectionContent
+}
+
+/* ── InterpretationResult ─────────────────────── */
+
+interface InterpretationResultProps {
+  interpretation: CanvasInterpretation
+  onDismiss: () => void
+}
+
+function InterpretationResult({ interpretation, onDismiss }: InterpretationResultProps) {
+  const [viewMode, setViewMode] = useState<'summary' | 'json'>('summary')
+
+  const itemMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of interpretation.items) {
+      map.set(item.item_id, item.item)
+    }
+    return map
+  }, [interpretation.items])
+
+  return (
+    <div className="interpret-result">
+      <div className="interpret-result-header">
+        <span className="interpret-result-category">{interpretation.category}</span>
+        <div className="interpret-result-actions">
+          <button
+            className={`interpret-view-toggle ${viewMode === 'summary' ? 'active' : ''}`}
+            onClick={() => setViewMode('summary')}
+          >
+            Summary
+          </button>
+          <button
+            className={`interpret-view-toggle ${viewMode === 'json' ? 'active' : ''}`}
+            onClick={() => setViewMode('json')}
+          >
+            JSON
+          </button>
+          <button className="interpret-result-dismiss" onClick={onDismiss} title="Dismiss">
+            &times;
+          </button>
+        </div>
+      </div>
+
+      {viewMode === 'summary' ? (
+        <div className="interpret-summary">
+          <p className="interpret-description">{interpretation.description}</p>
+
+          {interpretation.items.length > 0 && (
+            <div className="interpret-items">
+              <h4>Items ({interpretation.items.length})</h4>
+              <ul>
+                {interpretation.items.map((item) => (
+                  <li key={item.item_id}>{item.item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {interpretation.relationships.length > 0 && (
+            <div className="interpret-relationships">
+              <h4>Relationships ({interpretation.relationships.length})</h4>
+              <ul>
+                {interpretation.relationships.map((rel) => {
+                  const from = rel.relationship_direction === 'from'
+                    ? itemMap.get(rel.item_id) ?? '?'
+                    : itemMap.get(rel.related_item_id) ?? '?'
+                  const to = rel.relationship_direction === 'from'
+                    ? itemMap.get(rel.related_item_id) ?? '?'
+                    : itemMap.get(rel.item_id) ?? '?'
+                  return (
+                    <li key={rel.relationship_id}>
+                      {from} → {to}{rel.label ? ` (${rel.label})` : ''}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : (
+        <pre className="interpret-json">{JSON.stringify(interpretation, null, 2)}</pre>
+      )}
+    </div>
+  )
 }
 
 /* ── AddSectionButton ─────────────────────────── */

@@ -9,6 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const canvasStore = {}
+const pendingInterpretRequests = new Map(); // requestId -> { resolve, reject }
 
  const worker = new Worker(path.join(__dirname, 'workers', 'canvasProcessor.js'));
 
@@ -45,6 +46,41 @@ app.get('/pen_event', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'pen_event.html'));
 });
 
+// POST method to interpret canvas drawing via LLM
+app.post('/api/v1/canvases/interpret', (req, res) => {
+  const { canvasData } = req.body;
+  if (!canvasData) {
+    return res.status(400).json({ error: 'canvasData is required' });
+  }
+
+  const requestId = uuidv4();
+  const timeoutMs = 60000; // 60s timeout for LLM response
+
+  const timeout = setTimeout(() => {
+    if (pendingInterpretRequests.has(requestId)) {
+      const { reject } = pendingInterpretRequests.get(requestId);
+      pendingInterpretRequests.delete(requestId);
+      reject(new Error('Interpretation timed out'));
+    }
+  }, timeoutMs);
+
+  const promise = new Promise((resolve, reject) => {
+    pendingInterpretRequests.set(requestId, { resolve, reject });
+  });
+
+  worker.postMessage({ canvasData, canvasId: requestId, requestId });
+
+  promise
+    .then((jsonData) => {
+      clearTimeout(timeout);
+      res.json(jsonData);
+    })
+    .catch((err) => {
+      clearTimeout(timeout);
+      res.status(500).json({ error: err.message || 'Interpretation failed' });
+    });
+});
+
 // POST method to save canvas data
 app.post('/api/save-canvas', (req, res) => {
   const { canvasData, canvasTitle } = req.body;
@@ -60,6 +96,19 @@ app.post('/api/save-canvas', (req, res) => {
 });
 
 worker.on('message', (message) => {
+  // Handle interpret requests (request-response via correlation ID)
+  if (message.requestId && pendingInterpretRequests.has(message.requestId)) {
+    const { resolve, reject } = pendingInterpretRequests.get(message.requestId);
+    pendingInterpretRequests.delete(message.requestId);
+    if (message.success) {
+      resolve(message.jsonData);
+    } else {
+      reject(new Error(message.message || 'Interpretation failed'));
+    }
+    return;
+  }
+
+  // Handle legacy canvas save requests
   canvasItem = canvasStore[message.canvasId]
   if (message.success) {
     canvasItem.status = "processed"
@@ -70,9 +119,8 @@ worker.on('message', (message) => {
     canvasItem.filename = message.fileName
     canvasItem.processMessage = message.message
     canvasItem.processError = message.error
-
   }
-  
+
   console.log("Canvas Item", canvasItem)
 })
 

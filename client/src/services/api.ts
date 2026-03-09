@@ -65,6 +65,39 @@ export function createCanvas(name: string): Promise<Canvas> {
   })
 }
 
+// ── Canvas Interpretation ─────────────────────────
+
+export interface CanvasInterpretation {
+  description: string
+  category: 'mindmap' | 'list' | 'diagram' | 'flowchart' | 'notes' | 'sketch' | 'table' | 'other'
+  items: Array<{
+    item_id: string
+    item: string
+    x_position: number
+    y_position: number
+    width: number
+    height: number
+  }>
+  relationships: Array<{
+    relationship_id: string
+    item_id: string
+    related_item_id: string
+    relationship_direction: 'from' | 'to'
+    label?: string
+    x_position: number
+    y_position: number
+    width: number
+    height: number
+  }>
+}
+
+export function interpretCanvas(canvasData: string): Promise<CanvasInterpretation> {
+  return request('/v1/canvases/interpret', {
+    method: 'POST',
+    body: JSON.stringify({ canvasData }),
+  })
+}
+
 // ── Legacy (existing prototype) ────────────────────
 
 interface LegacyCanvasResult {

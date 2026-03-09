@@ -9,6 +9,8 @@ export interface PenCanvasHandle {
   hasContent: () => boolean
   /** Clear everything */
   clear: () => void
+  /** Export canvas as base64 data URL (PNG) */
+  toDataURL: () => string
 }
 
 interface PenCanvasProps {
@@ -420,6 +422,37 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         strokesRef.current = []
         currentStrokeRef.current = null
         redraw()
+      },
+      toDataURL() {
+        const canvas = canvasRef.current
+        if (!canvas) return ''
+        // Render strokes onto a clean canvas at 1:1 scale for the LLM
+        const strokes = strokesRef.current
+        if (strokes.length === 0) return ''
+        // Compute bounding box
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+        for (const stroke of strokes) {
+          for (const p of stroke.points) {
+            if (p.x < minX) minX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.x > maxX) maxX = p.x
+            if (p.y > maxY) maxY = p.y
+          }
+        }
+        const pad = 20
+        const w = Math.max(maxX - minX + pad * 2, 100)
+        const h = Math.max(maxY - minY + pad * 2, 100)
+        const offscreen = document.createElement('canvas')
+        offscreen.width = w
+        offscreen.height = h
+        const ctx = offscreen.getContext('2d')!
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, w, h)
+        ctx.translate(-minX + pad, -minY + pad)
+        for (const stroke of strokes) {
+          drawStroke(ctx, stroke)
+        }
+        return offscreen.toDataURL('image/png')
       },
     }), [redraw])
 

@@ -9,7 +9,7 @@ import { useInputModeContext } from '@/contexts/InputModeContext'
 import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId } from '@/utils/cardBlocks'
 import { hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
-import { interpretCanvas } from '@/services/api'
+import { interpretCanvas, getExtractions } from '@/services/api'
 import type { CanvasInterpretation } from '@/services/api'
 import type { Card, ContentBlock, SectionType, StrokeTool, LineStyle } from '@/types/models'
 
@@ -69,9 +69,27 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   const [editorFullscreen, setEditorFullscreen] = useState(false)
   const [fullscreenBlockId, setFullscreenBlockId] = useState<string | null>(null)
   const [penPaletteOpen, setPenPaletteOpen] = useState(true)
+  const [savedInterpretation, setSavedInterpretation] = useState<CanvasInterpretation | null>(null)
+  const [savedExtractionCreatedAt, setSavedExtractionCreatedAt] = useState<string | null>(null)
 
   const penCanvasRefs = useRef<Map<string, PenCanvasHandle>>(new Map())
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Load saved interpretation from DB when editing an existing card
+  useEffect(() => {
+    if (!card?.id) return
+    let cancelled = false
+    getExtractions(card.id).then((extractions) => {
+      if (cancelled) return
+      if (extractions.length > 0) {
+        setSavedInterpretation(extractions[0].result)
+        setSavedExtractionCreatedAt(extractions[0].createdAt)
+      }
+    }).catch(() => {
+      // Silently ignore — interpretation is optional
+    })
+    return () => { cancelled = true }
+  }, [card?.id])
 
   // Build save data from current state
   const buildSaveData = useCallback((): CardEditorSaveData => {
@@ -291,6 +309,10 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
               registerPenRef={registerPenRef}
               isFullscreen={fullscreenBlockId === block.id}
               penCanvasRefs={penCanvasRefs}
+              cardId={card?.id}
+              savedInterpretation={block.type === 'body' ? savedInterpretation : null}
+              cardUpdatedAt={card?.updatedAt}
+              extractionCreatedAt={savedExtractionCreatedAt}
               onToggleFullscreen={() => {
                 // Finalize drawing before toggling so strokes persist across mount/unmount
                 const handle = penCanvasRefs.current.get(block.id)
@@ -387,6 +409,10 @@ interface SectionBlockProps {
   isFullscreen: boolean
   onToggleFullscreen: () => void
   penCanvasRefs: React.RefObject<Map<string, PenCanvasHandle>>
+  cardId?: string
+  savedInterpretation?: CanvasInterpretation | null
+  cardUpdatedAt?: string
+  extractionCreatedAt?: string | null
 }
 
 function SectionBlock({
@@ -403,14 +429,46 @@ function SectionBlock({
   isFullscreen,
   onToggleFullscreen,
   penCanvasRefs,
+  cardId,
+  savedInterpretation: initialInterpretation,
+  cardUpdatedAt,
+  extractionCreatedAt,
 }: SectionBlockProps) {
   const isHeading = block.type === 'heading'
   const showTextArea = isActive && mode === 'keyboard'
   const showCanvas = isActive && mode === 'pen'
 
   const [interpreting, setInterpreting] = useState(false)
-  const [interpretation, setInterpretation] = useState<CanvasInterpretation | null>(null)
+  const [interpretation, setInterpretation] = useState<CanvasInterpretation | null>(initialInterpretation ?? null)
+  const [interpretationFromDb, setInterpretationFromDb] = useState(!!initialInterpretation)
   const [interpretError, setInterpretError] = useState<string | null>(null)
+  const [drawingModifiedSinceInterpret, setDrawingModifiedSinceInterpret] = useState(false)
+
+  // Determine if the saved interpretation is outdated based on timestamps
+  const interpretationOutdated = useMemo(() => {
+    if (drawingModifiedSinceInterpret) return true
+    if (!interpretationFromDb || !extractionCreatedAt || !cardUpdatedAt) return false
+    return new Date(cardUpdatedAt) > new Date(extractionCreatedAt)
+  }, [drawingModifiedSinceInterpret, interpretationFromDb, extractionCreatedAt, cardUpdatedAt])
+
+  // Update interpretation when saved data loads asynchronously
+  useEffect(() => {
+    if (initialInterpretation) {
+      setInterpretation(initialInterpretation)
+      setInterpretationFromDb(true)
+      setDrawingModifiedSinceInterpret(false)
+    }
+  }, [initialInterpretation])
+
+  // Track drawing modifications after an interpretation exists
+  const drawingStrokeCount = block.drawingContent.length
+  const prevStrokeCountRef = useRef(drawingStrokeCount)
+  useEffect(() => {
+    if (prevStrokeCountRef.current !== drawingStrokeCount && interpretation) {
+      setDrawingModifiedSinceInterpret(true)
+    }
+    prevStrokeCountRef.current = drawingStrokeCount
+  }, [drawingStrokeCount, interpretation])
 
   const handleInterpret = useCallback(async () => {
     // Get the canvas data URL from the active PenCanvas or from stored strokes
@@ -453,14 +511,16 @@ function SectionBlock({
     setInterpreting(true)
     setInterpretError(null)
     try {
-      const result = await interpretCanvas(dataUrl)
+      const result = await interpretCanvas(dataUrl, cardId)
       setInterpretation(result)
+      setInterpretationFromDb(false)
+      setDrawingModifiedSinceInterpret(false)
     } catch (err) {
       setInterpretError(err instanceof Error ? err.message : 'Interpretation failed')
     } finally {
       setInterpreting(false)
     }
-  }, [block.id, block.drawingContent, penCanvasRefs])
+  }, [block.id, block.drawingContent, penCanvasRefs, cardId])
 
   const hasDrawingContent = hasDrawing(block.drawingContent) || (isActive && mode === 'pen')
 
@@ -614,6 +674,8 @@ function SectionBlock({
         <InterpretationResult
           interpretation={interpretation}
           onDismiss={() => setInterpretation(null)}
+          defaultCollapsed={interpretationFromDb}
+          outdated={interpretationOutdated}
         />
       )}
 
@@ -648,10 +710,13 @@ function SectionBlock({
 interface InterpretationResultProps {
   interpretation: CanvasInterpretation
   onDismiss: () => void
+  defaultCollapsed?: boolean
+  outdated?: boolean
 }
 
-function InterpretationResult({ interpretation, onDismiss }: InterpretationResultProps) {
+function InterpretationResult({ interpretation, onDismiss, defaultCollapsed = false, outdated = false }: InterpretationResultProps) {
   const [viewMode, setViewMode] = useState<'summary' | 'json'>('summary')
+  const [collapsed, setCollapsed] = useState(defaultCollapsed)
 
   const itemMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -662,66 +727,87 @@ function InterpretationResult({ interpretation, onDismiss }: InterpretationResul
   }, [interpretation.items])
 
   return (
-    <div className="interpret-result">
-      <div className="interpret-result-header">
-        <span className="interpret-result-category">{interpretation.category}</span>
-        <div className="interpret-result-actions">
-          <button
-            className={`interpret-view-toggle ${viewMode === 'summary' ? 'active' : ''}`}
-            onClick={() => setViewMode('summary')}
-          >
-            Summary
-          </button>
-          <button
-            className={`interpret-view-toggle ${viewMode === 'json' ? 'active' : ''}`}
-            onClick={() => setViewMode('json')}
-          >
-            JSON
-          </button>
+    <div className={`interpret-result ${collapsed ? 'interpret-result-collapsed' : ''} ${outdated ? 'interpret-result-outdated' : ''}`}>
+      <div
+        className="interpret-result-header"
+        onClick={() => setCollapsed((c) => !c)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') setCollapsed((c) => !c) }}
+      >
+        <div className="interpret-result-header-left">
+          <span className="interpret-collapse-indicator">{collapsed ? '\u25B6' : '\u25BC'}</span>
+          <span className="interpret-result-category">{interpretation.category}</span>
+          {outdated && <span className="interpret-outdated-badge">Outdated</span>}
+          {collapsed && (
+            <span className="interpret-result-description-preview">
+              {interpretation.description}
+            </span>
+          )}
+        </div>
+        <div className="interpret-result-actions" onClick={(e) => e.stopPropagation()}>
+          {!collapsed && (
+            <>
+              <button
+                className={`interpret-view-toggle ${viewMode === 'summary' ? 'active' : ''}`}
+                onClick={() => setViewMode('summary')}
+              >
+                Summary
+              </button>
+              <button
+                className={`interpret-view-toggle ${viewMode === 'json' ? 'active' : ''}`}
+                onClick={() => setViewMode('json')}
+              >
+                JSON
+              </button>
+            </>
+          )}
           <button className="interpret-result-dismiss" onClick={onDismiss} title="Dismiss">
             &times;
           </button>
         </div>
       </div>
 
-      {viewMode === 'summary' ? (
-        <div className="interpret-summary">
-          <p className="interpret-description">{interpretation.description}</p>
+      {!collapsed && (
+        viewMode === 'summary' ? (
+          <div className="interpret-summary">
+            <p className="interpret-description">{interpretation.description}</p>
 
-          {interpretation.items.length > 0 && (
-            <div className="interpret-items">
-              <h4>Items ({interpretation.items.length})</h4>
-              <ul>
-                {interpretation.items.map((item) => (
-                  <li key={item.item_id}>{item.item}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+            {interpretation.items.length > 0 && (
+              <div className="interpret-items">
+                <h4>Items ({interpretation.items.length})</h4>
+                <ul>
+                  {interpretation.items.map((item) => (
+                    <li key={item.item_id}>{item.item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
-          {interpretation.relationships.length > 0 && (
-            <div className="interpret-relationships">
-              <h4>Relationships ({interpretation.relationships.length})</h4>
-              <ul>
-                {interpretation.relationships.map((rel) => {
-                  const from = rel.relationship_direction === 'from'
-                    ? itemMap.get(rel.item_id) ?? '?'
-                    : itemMap.get(rel.related_item_id) ?? '?'
-                  const to = rel.relationship_direction === 'from'
-                    ? itemMap.get(rel.related_item_id) ?? '?'
-                    : itemMap.get(rel.item_id) ?? '?'
-                  return (
-                    <li key={rel.relationship_id}>
-                      {from} → {to}{rel.label ? ` (${rel.label})` : ''}
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : (
-        <pre className="interpret-json">{JSON.stringify(interpretation, null, 2)}</pre>
+            {interpretation.relationships.length > 0 && (
+              <div className="interpret-relationships">
+                <h4>Relationships ({interpretation.relationships.length})</h4>
+                <ul>
+                  {interpretation.relationships.map((rel) => {
+                    const from = rel.relationship_direction === 'from'
+                      ? itemMap.get(rel.item_id) ?? '?'
+                      : itemMap.get(rel.related_item_id) ?? '?'
+                    const to = rel.relationship_direction === 'from'
+                      ? itemMap.get(rel.related_item_id) ?? '?'
+                      : itemMap.get(rel.item_id) ?? '?'
+                    return (
+                      <li key={rel.relationship_id}>
+                        {from} → {to}{rel.label ? ` (${rel.label})` : ''}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
+          </div>
+        ) : (
+          <pre className="interpret-json">{JSON.stringify(interpretation, null, 2)}</pre>
+        )
       )}
     </div>
   )

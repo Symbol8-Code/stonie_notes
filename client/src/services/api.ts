@@ -89,13 +89,29 @@ export interface CanvasInterpretation {
     width: number
     height: number
   }>
+  /** ID of the saved ai_extractions row, if persisted */
+  extractionId?: string
 }
 
-export function interpretCanvas(canvasData: string): Promise<CanvasInterpretation> {
+export function interpretCanvas(canvasData: string, cardId?: string): Promise<CanvasInterpretation> {
   return request('/v1/canvases/interpret', {
     method: 'POST',
-    body: JSON.stringify({ canvasData }),
+    body: JSON.stringify({ canvasData, cardId }),
   })
+}
+
+export interface AiExtraction {
+  id: string
+  sourceType: string
+  sourceId: string
+  extractionType: string
+  result: CanvasInterpretation
+  confidence: number | null
+  createdAt: string
+}
+
+export function getExtractions(sourceId: string): Promise<AiExtraction[]> {
+  return request(`/v1/extractions?sourceId=${encodeURIComponent(sourceId)}`)
 }
 
 // ── Legacy (existing prototype) ────────────────────

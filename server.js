@@ -4,6 +4,9 @@ const path = require('path');
 const bodyParser = require('body-parser');
 const { Worker } = require('worker_threads');
 const { v4: uuidv4 } = require('uuid');
+const { db } = require('./db');
+const { aiExtractions } = require('./db/schema');
+const { eq, desc } = require('drizzle-orm');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -46,9 +49,28 @@ app.get('/pen_event', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'pen_event.html'));
 });
 
+// GET extractions for a given source (card)
+app.get('/api/v1/extractions', async (req, res) => {
+  const { sourceId } = req.query;
+  if (!sourceId) {
+    return res.status(400).json({ error: 'sourceId query parameter is required' });
+  }
+
+  try {
+    const results = await db.select().from(aiExtractions)
+      .where(eq(aiExtractions.sourceId, sourceId))
+      .orderBy(desc(aiExtractions.createdAt));
+
+    res.json(results);
+  } catch (err) {
+    console.error('Error fetching extractions:', err);
+    res.status(500).json({ error: 'Failed to fetch extractions' });
+  }
+});
+
 // POST method to interpret canvas drawing via LLM
 app.post('/api/v1/canvases/interpret', (req, res) => {
-  const { canvasData } = req.body;
+  const { canvasData, cardId } = req.body;
   if (!canvasData) {
     return res.status(400).json({ error: 'canvasData is required' });
   }
@@ -71,9 +93,25 @@ app.post('/api/v1/canvases/interpret', (req, res) => {
   worker.postMessage({ canvasData, canvasId: requestId, requestId });
 
   promise
-    .then((jsonData) => {
+    .then(async (jsonData) => {
       clearTimeout(timeout);
-      res.json(jsonData);
+
+      // Save interpretation to ai_extractions table
+      try {
+        const [extraction] = await db.insert(aiExtractions).values({
+          sourceType: 'canvas',
+          sourceId: cardId || requestId,
+          extractionType: 'items',
+          result: jsonData,
+          confidence: null,
+        }).returning();
+
+        res.json({ ...jsonData, extractionId: extraction.id });
+      } catch (dbErr) {
+        console.error('Error saving extraction to DB:', dbErr);
+        // Still return the interpretation even if DB save fails
+        res.json(jsonData);
+      }
     })
     .catch((err) => {
       clearTimeout(timeout);

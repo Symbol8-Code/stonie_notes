@@ -3,7 +3,7 @@ import { CardEditor } from '@/components/CardEditor'
 import type { CardEditorSaveData } from '@/components/CardEditor'
 import { StrokePreview } from '@/components/StrokePreview'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
-import { listCards, createCard, updateCard, archiveCard } from '@/services/api'
+import { listCards, createCard, updateCard, archiveCard, setBoardsForCard } from '@/services/api'
 import { parseBlocks } from '@/utils/cardBlocks'
 import { hasDrawing } from '@/types/models'
 import { useOnlineContext } from '@/contexts/OnlineContext'
@@ -96,6 +96,10 @@ export function InboxPage({ startCreating = false, onCreatingDone }: InboxPagePr
       if (navigator.onLine) {
         try {
           const card = await createCard(payload)
+          // Save board associations if any were selected
+          if (data.boardIds && data.boardIds.length > 0) {
+            setBoardsForCard(card.id, data.boardIds).catch(() => {})
+          }
           setCards((prev) => [card, ...prev])
           cacheCard(card).catch(() => {})
           setCreating(false)

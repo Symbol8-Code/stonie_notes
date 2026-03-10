@@ -9,10 +9,10 @@ import { useInputModeContext } from '@/contexts/InputModeContext'
 import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId } from '@/utils/cardBlocks'
 import { hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
-import { interpretCanvas, getExtractions } from '@/services/api'
+import { interpretCanvas, getExtractions, listBoards, getBoardsForCard, setBoardsForCard } from '@/services/api'
 import { useOnlineContext } from '@/contexts/OnlineContext'
 import type { CanvasInterpretation } from '@/services/api'
-import type { Card, ContentBlock, SectionType, StrokeTool, LineStyle } from '@/types/models'
+import type { Card, Board, ContentBlock, SectionType, StrokeTool, LineStyle } from '@/types/models'
 
 type EditorMode = 'keyboard' | 'pen'
 
@@ -34,6 +34,7 @@ export interface CardEditorSaveData {
   title: string
   bodyText: string
   source: 'keyboard' | 'pen'
+  boardIds?: string[]
 }
 
 interface CardEditorProps {
@@ -71,26 +72,85 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   const [editorFullscreen, setEditorFullscreen] = useState(false)
   const [fullscreenBlockId, setFullscreenBlockId] = useState<string | null>(null)
   const [penPaletteOpen, setPenPaletteOpen] = useState(true)
-  const [savedInterpretation, setSavedInterpretation] = useState<CanvasInterpretation | null>(null)
+  const [savedInterpretations, setSavedInterpretations] = useState<Map<string, CanvasInterpretation>>(new Map())
   const [savedExtractionCreatedAt, setSavedExtractionCreatedAt] = useState<string | null>(null)
+
+  // Board selector state
+  const [allBoards, setAllBoards] = useState<Board[]>([])
+  const [selectedBoardIds, setSelectedBoardIds] = useState<Set<string>>(new Set())
+  const [boardsLoaded, setBoardsLoaded] = useState(false)
 
   const penCanvasRefs = useRef<Map<string, PenCanvasHandle>>(new Map())
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load saved interpretation from DB when editing an existing card
+  // Load all boards and current card's board associations
+  useEffect(() => {
+    let cancelled = false
+    listBoards().then((boards) => {
+      if (cancelled) return
+      setAllBoards(boards)
+      setBoardsLoaded(true)
+    }).catch(() => {
+      setBoardsLoaded(true)
+    })
+
+    if (card?.id && !card.id.startsWith('local-')) {
+      getBoardsForCard(card.id).then((boards) => {
+        if (cancelled) return
+        setSelectedBoardIds(new Set(boards.map((b) => b.id)))
+      }).catch(() => {})
+    }
+
+    return () => { cancelled = true }
+  }, [card?.id])
+
+  // Load saved interpretations from DB when editing an existing card
   useEffect(() => {
     if (!card?.id) return
     let cancelled = false
-    getExtractions(card.id).then((extractions) => {
+
+    // Try loading per-block extractions (cardId:blockId format)
+    getExtractions(card.id, true).then((extractions) => {
       if (cancelled) return
       if (extractions.length > 0) {
-        setSavedInterpretation(extractions[0].result)
-        setSavedExtractionCreatedAt(extractions[0].createdAt)
+        const map = new Map<string, CanvasInterpretation>()
+        let latestCreatedAt: string | null = null
+        for (const ext of extractions) {
+          // sourceId format: "cardId:blockId" — extract the blockId part
+          const colonIdx = ext.sourceId.indexOf(':')
+          if (colonIdx >= 0) {
+            const blockId = ext.sourceId.slice(colonIdx + 1)
+            // Only keep the most recent extraction per block (results are ordered desc)
+            if (!map.has(blockId)) {
+              map.set(blockId, ext.result)
+            }
+          }
+          if (!latestCreatedAt || ext.createdAt > latestCreatedAt) {
+            latestCreatedAt = ext.createdAt
+          }
+        }
+        if (map.size > 0) {
+          setSavedInterpretations(map)
+          setSavedExtractionCreatedAt(latestCreatedAt)
+          return
+        }
       }
+
+      // Fallback: load legacy extractions saved with just cardId (no block association)
+      return getExtractions(card.id!).then((legacyExtractions) => {
+        if (cancelled || legacyExtractions.length === 0) return
+        // Associate with the first block that has drawing content
+        const blockWithDrawing = blocks.find((b) => hasDrawing(b.drawingContent))
+        if (blockWithDrawing) {
+          setSavedInterpretations(new Map([[blockWithDrawing.id, legacyExtractions[0].result]]))
+          setSavedExtractionCreatedAt(legacyExtractions[0].createdAt)
+        }
+      })
     }).catch(() => {
       // Silently ignore — interpretation is optional
     })
     return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card?.id])
 
   // Build save data from current state
@@ -125,8 +185,14 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   const handleSave = useCallback(() => {
     const data = buildSaveData()
     if (data.title === 'Untitled' && !data.bodyText) return
-    onSave(data)
-  }, [buildSaveData, onSave])
+
+    // Save board associations after card save if we have a card ID
+    if (card?.id && !card.id.startsWith('local-') && online) {
+      setBoardsForCard(card.id, Array.from(selectedBoardIds)).catch(() => {})
+    }
+
+    onSave({ ...data, boardIds: Array.from(selectedBoardIds) } as CardEditorSaveData)
+  }, [buildSaveData, onSave, card?.id, online, selectedBoardIds])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -313,7 +379,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
               penCanvasRefs={penCanvasRefs}
               cardId={card?.id}
               online={online}
-              savedInterpretation={block.type === 'body' ? savedInterpretation : null}
+              savedInterpretation={savedInterpretations.get(block.id) ?? null}
               cardUpdatedAt={card?.updatedAt}
               extractionCreatedAt={savedExtractionCreatedAt}
               onToggleFullscreen={() => {
@@ -335,6 +401,15 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
           </div>
         ))}
       </div>
+
+      {/* Board selector */}
+      {boardsLoaded && allBoards.length > 0 && (
+        <BoardSelector
+          boards={allBoards}
+          selectedIds={selectedBoardIds}
+          onChange={setSelectedBoardIds}
+        />
+      )}
 
       {/* Actions */}
       <div className="card-editor-actions">
@@ -516,16 +591,27 @@ function SectionBlock({
     setInterpreting(true)
     setInterpretError(null)
     try {
-      const result = await interpretCanvas(dataUrl, cardId)
+      // For headings, use readText mode to extract the actual handwritten words
+      const interpretMode = isHeading ? 'readText' : undefined
+      const result = await interpretCanvas(dataUrl, cardId, interpretMode, block.id)
+
       setInterpretation(result)
       setInterpretationFromDb(false)
       setDrawingModifiedSinceInterpret(false)
+
+      // For heading blocks, also set the extracted text as the heading title
+      if (isHeading && result) {
+        const extractedText = result.text || ''
+        if (extractedText.trim()) {
+          onTextChange(extractedText.trim())
+        }
+      }
     } catch (err) {
       setInterpretError(err instanceof Error ? err.message : 'Interpretation failed')
     } finally {
       setInterpreting(false)
     }
-  }, [block.id, block.drawingContent, penCanvasRefs, cardId])
+  }, [block.id, block.drawingContent, penCanvasRefs, cardId, isHeading, onTextChange])
 
   const hasDrawingContent = hasDrawing(block.drawingContent) || (isActive && mode === 'pen')
 
@@ -658,7 +744,7 @@ function SectionBlock({
       )}
 
       {/* Interpret drawing button */}
-      {isActive && !isHeading && hasDrawingContent && (
+      {isActive && hasDrawingContent && (
         <div className="section-interpret-area">
           <button
             className="btn btn-interpret"
@@ -667,9 +753,9 @@ function SectionBlock({
               handleInterpret()
             }}
             disabled={interpreting || !online}
-            title={online ? 'Send drawing to AI for interpretation' : 'Interpret is unavailable offline'}
+            title={online ? (isHeading ? 'Read handwritten title' : 'Send drawing to AI for interpretation') : 'Interpret is unavailable offline'}
           >
-            {interpreting ? 'Interpreting...' : online ? 'Interpret Drawing' : 'Interpret (offline)'}
+            {interpreting ? 'Interpreting...' : online ? (isHeading ? 'Read Handwriting' : 'Interpret Drawing') : 'Interpret (offline)'}
           </button>
         </div>
       )}
@@ -813,6 +899,83 @@ function InterpretationResult({ interpretation, onDismiss, defaultCollapsed = fa
         ) : (
           <pre className="interpret-json">{JSON.stringify(interpretation, null, 2)}</pre>
         )
+      )}
+    </div>
+  )
+}
+
+/* ── BoardSelector ─────────────────────────────── */
+
+interface BoardSelectorProps {
+  boards: Board[]
+  selectedIds: Set<string>
+  onChange: (ids: Set<string>) => void
+}
+
+function BoardSelector({ boards, selectedIds, onChange }: BoardSelectorProps) {
+  const [expanded, setExpanded] = useState(false)
+
+  const toggleBoard = useCallback((boardId: string) => {
+    onChange(new Set(
+      selectedIds.has(boardId)
+        ? [...selectedIds].filter((id) => id !== boardId)
+        : [...selectedIds, boardId]
+    ))
+  }, [selectedIds, onChange])
+
+  const selectedBoards = boards.filter((b) => selectedIds.has(b.id))
+
+  return (
+    <div className="board-selector">
+      <div
+        className="board-selector-header"
+        onClick={() => setExpanded((e) => !e)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') setExpanded((v) => !v) }}
+      >
+        <span className="board-selector-label">
+          Boards {selectedBoards.length > 0 && `(${selectedBoards.length})`}
+        </span>
+        <span className="board-selector-toggle">{expanded ? '\u25BC' : '\u25B6'}</span>
+      </div>
+
+      {!expanded && selectedBoards.length > 0 && (
+        <div className="board-selector-pills">
+          {selectedBoards.map((b) => (
+            <span key={b.id} className="board-pill">
+              {b.name}
+              <button
+                className="board-pill-remove"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleBoard(b.id)
+                }}
+                aria-label={`Remove from ${b.name}`}
+              >
+                &times;
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {expanded && (
+        <div className="board-selector-list">
+          {boards.map((board) => (
+            <label key={board.id} className="board-selector-item">
+              <input
+                type="checkbox"
+                checked={selectedIds.has(board.id)}
+                onChange={() => toggleBoard(board.id)}
+              />
+              <span className="board-selector-item-name">{board.name}</span>
+            </label>
+          ))}
+          {boards.length === 0 && (
+            <p className="board-selector-empty">No boards created yet.</p>
+          )}
+        </div>
       )}
     </div>
   )

@@ -6,7 +6,7 @@ const { Worker } = require('worker_threads');
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('./db');
 const { aiExtractions } = require('./db/schema');
-const { eq, desc } = require('drizzle-orm');
+const { eq, desc, like } = require('drizzle-orm');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,8 +31,10 @@ app.use(bodyParser.json({ limit: '10mb' }));
 // ── New v1 API routes (DESIGN.md Section 7.5) ────
 const cardsRouter = require('./routes/cards');
 const canvasesRouter = require('./routes/canvases');
+const boardsRouter = require('./routes/boards');
 app.use('/api/v1/cards', cardsRouter);
 app.use('/api/v1/canvases', canvasesRouter);
+app.use('/api/v1/boards', boardsRouter);
 
 // Route for the home page
 app.get('/', (req, res) => {
@@ -49,16 +51,22 @@ app.get('/pen_event', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'pen_event.html'));
 });
 
-// GET extractions for a given source (card)
+// GET extractions for a given source (card or card:block)
 app.get('/api/v1/extractions', async (req, res) => {
-  const { sourceId } = req.query;
+  const { sourceId, prefix } = req.query;
   if (!sourceId) {
     return res.status(400).json({ error: 'sourceId query parameter is required' });
   }
 
   try {
+    // prefix=1 matches all extractions whose sourceId starts with the given value
+    // (e.g. sourceId=cardId matches cardId:block1, cardId:block2, etc.)
+    const condition = prefix
+      ? like(aiExtractions.sourceId, `${sourceId}:%`)
+      : eq(aiExtractions.sourceId, sourceId);
+
     const results = await db.select().from(aiExtractions)
-      .where(eq(aiExtractions.sourceId, sourceId))
+      .where(condition)
       .orderBy(desc(aiExtractions.createdAt));
 
     res.json(results);
@@ -70,7 +78,7 @@ app.get('/api/v1/extractions', async (req, res) => {
 
 // POST method to interpret canvas drawing via LLM
 app.post('/api/v1/canvases/interpret', (req, res) => {
-  const { canvasData, cardId } = req.body;
+  const { canvasData, cardId, mode, blockId } = req.body;
   if (!canvasData) {
     return res.status(400).json({ error: 'canvasData is required' });
   }
@@ -90,17 +98,20 @@ app.post('/api/v1/canvases/interpret', (req, res) => {
     pendingInterpretRequests.set(requestId, { resolve, reject });
   });
 
-  worker.postMessage({ canvasData, canvasId: requestId, requestId });
+  worker.postMessage({ canvasData, canvasId: requestId, requestId, mode });
 
   promise
     .then(async (jsonData) => {
       clearTimeout(timeout);
 
+      // Build sourceId: cardId:blockId for per-block association, fallback to cardId or requestId
+      const sourceId = cardId && blockId ? `${cardId}:${blockId}` : (cardId || requestId);
+
       // Save interpretation to ai_extractions table
       try {
         const [extraction] = await db.insert(aiExtractions).values({
           sourceType: 'canvas',
-          sourceId: cardId || requestId,
+          sourceId,
           extractionType: 'items',
           result: jsonData,
           confidence: null,

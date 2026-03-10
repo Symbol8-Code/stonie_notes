@@ -27,10 +27,13 @@ export interface Board {
   id: string
   workspaceId: string
   name: string
+  description: string
   boardType: BoardType
   lanes: Lane[]
+  cards: Card[]
   createdBy: string
   createdAt: string
+  updatedAt: string
 }
 
 export interface Lane {

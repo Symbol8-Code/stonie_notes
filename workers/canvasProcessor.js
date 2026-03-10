@@ -19,10 +19,43 @@ const client = new openai.OpenAI({
 
 parentPort.on('message', async (data) => {
   console.log("Worker 'canvasProcessor': received message ");
-  const { canvasData, canvasId, requestId } = data;
+  const { canvasData, canvasId, requestId, mode } = data;
   const base64Data = canvasData.replace(/^data:image\/png;base64,/, "");
 
-  console.log("Worker 'canvasProcessor': sending to llm");
+  console.log("Worker 'canvasProcessor': sending to llm, mode:", mode || 'interpret');
+
+  // Simple text extraction mode for reading handwritten text (e.g. headings)
+  if (mode === 'readText') {
+    const readTextPrompt = `Read the handwritten text in this image. Return ONLY the exact words/text that are written, nothing else. Do not describe the image. Do not add quotes. Just output the literal text content.`;
+
+    try {
+      const chatCompletion = await client.chat.completions.create({
+        messages: [{
+          role: 'user',
+          content: [
+            { type: "text", text: readTextPrompt },
+            { type: "image_url", image_url: { url: canvasData } }
+          ]
+        }],
+        model: 'gpt-4o',
+      });
+
+      const rawText = chatCompletion.choices[0].message.content.trim();
+      console.log("Worker 'canvasProcessor': readText result:", rawText);
+
+      parentPort.postMessage({
+        success: true,
+        message: 'Text extracted successfully',
+        canvasId,
+        requestId,
+        jsonData: { text: rawText, description: rawText, category: 'text', items: [], relationships: [] }
+      });
+    } catch (error) {
+      console.error('Error in readText mode:', error);
+      parentPort.postMessage({ success: false, message: 'Text extraction failed', error, canvasId, requestId });
+    }
+    return;
+  }
 
   const interpretPrompt = `Analyze this handwritten note or drawing. Provide a structured interpretation including:
 

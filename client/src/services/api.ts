@@ -5,7 +5,7 @@
  * All calls go through the Vite dev proxy (/api -> localhost:3000).
  */
 
-import type { Card, Canvas } from '@/types/models'
+import type { Card, Canvas, Board } from '@/types/models'
 
 const BASE = '/api'
 
@@ -51,6 +51,45 @@ export function archiveCard(id: string): Promise<void> {
   return request(`/v1/cards/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
+// ── Boards ────────────────────────────────────────
+
+export function listBoards(): Promise<Board[]> {
+  return request('/v1/boards')
+}
+
+export function getBoard(id: string): Promise<Board> {
+  return request(`/v1/boards/${encodeURIComponent(id)}`)
+}
+
+export function createBoard(data: { name: string; description: string }): Promise<Board> {
+  return request('/v1/boards', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateBoard(id: string, data: Partial<Pick<Board, 'name' | 'description'>>): Promise<Board> {
+  return request(`/v1/boards/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteBoard(id: string): Promise<void> {
+  return request(`/v1/boards/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function getBoardsForCard(cardId: string): Promise<Board[]> {
+  return request(`/v1/boards/cards/${encodeURIComponent(cardId)}/boards`)
+}
+
+export function setBoardsForCard(cardId: string, boardIds: string[]): Promise<Board[]> {
+  return request(`/v1/boards/cards/${encodeURIComponent(cardId)}/boards`, {
+    method: 'PUT',
+    body: JSON.stringify({ boardIds }),
+  })
+}
+
 // ── Canvases ───────────────────────────────────────
 
 export function listCanvases(): Promise<Canvas[]> {
@@ -71,8 +110,10 @@ export function createCanvas(name: string): Promise<Canvas> {
 // ── Canvas Interpretation ─────────────────────────
 
 export interface CanvasInterpretation {
+  /** For readText mode, contains the extracted handwritten text */
+  text?: string
   description: string
-  category: 'mindmap' | 'list' | 'diagram' | 'flowchart' | 'notes' | 'sketch' | 'table' | 'other'
+  category: 'mindmap' | 'list' | 'diagram' | 'flowchart' | 'notes' | 'sketch' | 'table' | 'text' | 'other'
   items: Array<{
     item_id: string
     item: string
@@ -96,10 +137,10 @@ export interface CanvasInterpretation {
   extractionId?: string
 }
 
-export function interpretCanvas(canvasData: string, cardId?: string): Promise<CanvasInterpretation> {
+export function interpretCanvas(canvasData: string, cardId?: string, mode?: 'interpret' | 'readText', blockId?: string): Promise<CanvasInterpretation> {
   return request('/v1/canvases/interpret', {
     method: 'POST',
-    body: JSON.stringify({ canvasData, cardId }),
+    body: JSON.stringify({ canvasData, cardId, mode, blockId }),
   })
 }
 
@@ -113,8 +154,10 @@ export interface AiExtraction {
   createdAt: string
 }
 
-export function getExtractions(sourceId: string): Promise<AiExtraction[]> {
-  return request(`/v1/extractions?sourceId=${encodeURIComponent(sourceId)}`)
+export function getExtractions(sourceId: string, prefix?: boolean): Promise<AiExtraction[]> {
+  const params = new URLSearchParams({ sourceId })
+  if (prefix) params.set('prefix', '1')
+  return request(`/v1/extractions?${params}`)
 }
 
 // ── Legacy (existing prototype) ────────────────────

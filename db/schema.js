@@ -70,11 +70,13 @@ const workspaceMembers = pgTable('workspace_members', {
 
 const boards = pgTable('boards', {
   id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id').references(() => workspaces.id).notNull(),
+  workspaceId: uuid('workspace_id').references(() => workspaces.id),
   name: text('name').notNull(),
-  boardType: boardTypeEnum('board_type').notNull().default('kanban'),
-  createdBy: uuid('created_by').references(() => users.id).notNull(),
+  description: text('description').notNull().default(''),
+  boardType: boardTypeEnum('board_type').notNull().default('list'),
+  createdBy: uuid('created_by').references(() => users.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 const lanes = pgTable('lanes', {
@@ -101,6 +103,11 @@ const cardBoardPlacements = pgTable('card_board_placements', {
   cardId: uuid('card_id').references(() => cards.id).notNull(),
   laneId: uuid('lane_id').references(() => lanes.id).notNull(),
   position: integer('position').notNull().default(0),
+});
+
+const cardBoards = pgTable('card_boards', {
+  cardId: uuid('card_id').references(() => cards.id).notNull(),
+  boardId: uuid('board_id').references(() => boards.id).notNull(),
 });
 
 const cardCanvasPlacements = pgTable('card_canvas_placements', {
@@ -209,6 +216,7 @@ module.exports = {
   lanes,
   cards,
   cardBoardPlacements,
+  cardBoards,
   cardCanvasPlacements,
   canvases,
   strokes,

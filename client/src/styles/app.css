@@ -1997,6 +1997,231 @@ kbd {
   padding: 0 4px;
 }
 
+/* ── Boards ────────────────────────────────────── */
+
+.board-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.board-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  cursor: pointer;
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.board-card:hover {
+  border-color: var(--color-accent);
+  box-shadow: 0 2px 8px rgba(74, 108, 247, 0.1);
+}
+
+.board-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.board-card-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-card-description {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.board-card-drawing {
+  max-height: 60px;
+  margin-top: 4px;
+}
+
+.board-card-meta {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.board-card-delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+}
+
+.board-card-delete:hover {
+  color: #e53935;
+  background: rgba(229, 57, 53, 0.08);
+}
+
+.board-create-editor {
+  margin-bottom: 24px;
+}
+
+.board-create-heading {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--color-text-secondary);
+}
+
+.board-back-btn {
+  margin-right: 12px;
+}
+
+.board-detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.board-detail-description {
+  padding: 12px 16px;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  margin-bottom: 24px;
+}
+
+.board-detail-notes h2 {
+  font-size: 1.1rem;
+  margin-bottom: 12px;
+}
+
+.btn-danger {
+  background: #e53935;
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.btn-danger:hover {
+  background: #c62828;
+}
+
+/* ── Board Selector (in CardEditor) ────────────── */
+
+.board-selector {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.board-selector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  cursor: pointer;
+  user-select: none;
+}
+
+.board-selector-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.board-selector-toggle {
+  font-size: 0.7rem;
+  color: var(--color-text-secondary);
+}
+
+.board-selector-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.board-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  border-radius: var(--radius-full);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.board-pill-remove {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.board-pill-remove:hover {
+  color: #e53935;
+}
+
+.board-selector-list {
+  padding: 4px 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.board-selector-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.board-selector-item:hover {
+  background: var(--color-surface);
+}
+
+.board-selector-item input[type="checkbox"] {
+  accent-color: var(--color-accent);
+}
+
+.board-selector-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-selector-empty {
+  padding: 12px;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.board-description-preview {
+  margin-top: 4px;
+}
+
 /* ── Focus styles for keyboard navigation ──────── */
 
 :focus-visible {

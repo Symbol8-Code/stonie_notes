@@ -63,17 +63,17 @@ Return ONLY valid JSON in this exact format:
 Be thorough in extracting all content. If information for a field isn't available, use null for strings or empty arrays for lists.`;
 
     try {
-      const messageContent = [{ type: "text", text: meetingNotesPrompt }];
+      const messageContent = [{ type: "input_text", text: meetingNotesPrompt }];
       if (canvasData) {
-        messageContent.push({ type: "image_url", image_url: { url: canvasData } });
+        messageContent.push({ type: "input_image", image_url: canvasData });
       }
 
-      const chatCompletion = await client.chat.completions.create({
-        messages: [{ role: 'user', content: messageContent }],
-        model: 'gpt-4o',
+      const response = await client.responses.create({
+        input: [{ role: 'user', content: messageContent }],
+        model: 'gpt-5.4',
       });
 
-      const rawResponse = chatCompletion.choices[0].message.content.trim();
+      const rawResponse = response.output_text.trim();
       console.log("Worker 'canvasProcessor': meetingNotes response size:", rawResponse.length);
 
       let jsonData;
@@ -111,18 +111,18 @@ Be thorough in extracting all content. If information for a field isn't availabl
     const readTextPrompt = `Read the handwritten text in this image. Return ONLY the exact words/text that are written, nothing else. Do not describe the image. Do not add quotes. Just output the literal text content.`;
 
     try {
-      const chatCompletion = await client.chat.completions.create({
-        messages: [{
+      const response = await client.responses.create({
+        input: [{
           role: 'user',
           content: [
-            { type: "text", text: readTextPrompt },
-            { type: "image_url", image_url: { url: canvasData } }
+            { type: "input_text", text: readTextPrompt },
+            { type: "input_image", image_url: canvasData }
           ]
         }],
-        model: 'gpt-4o',
+        model: 'gpt-5.4',
       });
 
-      const rawText = chatCompletion.choices[0].message.content.trim();
+      const rawText = response.output_text.trim();
       console.log("Worker 'canvasProcessor': readText result:", rawText);
 
       parentPort.postMessage({
@@ -178,19 +178,19 @@ Respond ONLY with valid JSON in this exact format:
 If the image contains simple text notes with no relationships, the relationships array should be empty.
 If items have no clear bounding boxes, estimate reasonable positions.`;
 
-  const chatCompletion = await client.chat.completions.create({
-    messages: [
+  const response = await client.responses.create({
+    input: [
         {
             role: 'user',
             content: [
-                { type: "text", text: interpretPrompt },
-                { type: "image_url", image_url: { url: canvasData } }
+                { type: "input_text", text: interpretPrompt },
+                { type: "input_image", image_url: canvasData }
             ]
         }],
-    model: 'gpt-4o',
+    model: 'gpt-5.4',
   });
 
-  const llmResponse = chatCompletion.choices[0].message.content;
+  const llmResponse = response.output_text;
   console.log("Worker 'canvasProcessor': recieved from llm: size: ", llmResponse.length);
 
   //Check message for json, clean it and extract it

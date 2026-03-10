@@ -53,7 +53,7 @@ app.get('/pen_event', (req, res) => {
 
 // GET extractions for a given source (card or card:block)
 app.get('/api/v1/extractions', async (req, res) => {
-  const { sourceId, prefix } = req.query;
+  const { sourceId, prefix, extractionType: typeFilter } = req.query;
   if (!sourceId) {
     return res.status(400).json({ error: 'sourceId query parameter is required' });
   }
@@ -61,12 +61,18 @@ app.get('/api/v1/extractions', async (req, res) => {
   try {
     // prefix=1 matches all extractions whose sourceId starts with the given value
     // (e.g. sourceId=cardId matches cardId:block1, cardId:block2, etc.)
-    const condition = prefix
-      ? like(aiExtractions.sourceId, `${sourceId}:%`)
-      : eq(aiExtractions.sourceId, sourceId);
+    const conditions = [
+      prefix
+        ? like(aiExtractions.sourceId, `${sourceId}:%`)
+        : eq(aiExtractions.sourceId, sourceId),
+    ];
+    if (typeFilter) {
+      conditions.push(eq(aiExtractions.extractionType, typeFilter));
+    }
 
+    const { and } = require('drizzle-orm');
     const results = await db.select().from(aiExtractions)
-      .where(condition)
+      .where(conditions.length > 1 ? and(...conditions) : conditions[0])
       .orderBy(desc(aiExtractions.createdAt));
 
     res.json(results);
@@ -120,13 +126,63 @@ app.post('/api/v1/canvases/interpret', (req, res) => {
         res.json({ ...jsonData, extractionId: extraction.id });
       } catch (dbErr) {
         console.error('Error saving extraction to DB:', dbErr);
-        // Still return the interpretation even if DB save fails
-        res.json(jsonData);
+        // Still return the interpretation even if DB save fails, but flag it
+        res.json({ ...jsonData, saveError: 'Failed to save interpretation to database' });
       }
     })
     .catch((err) => {
       clearTimeout(timeout);
       res.status(500).json({ error: err.message || 'Interpretation failed' });
+    });
+});
+
+// POST method to write up meeting notes via LLM
+app.post('/api/v1/cards/meeting-notes', (req, res) => {
+  const { canvasData, textContent, cardId } = req.body;
+  if (!canvasData && !textContent) {
+    return res.status(400).json({ error: 'canvasData or textContent is required' });
+  }
+
+  const requestId = uuidv4();
+  const timeoutMs = 60000;
+
+  const timeout = setTimeout(() => {
+    if (pendingInterpretRequests.has(requestId)) {
+      const { reject } = pendingInterpretRequests.get(requestId);
+      pendingInterpretRequests.delete(requestId);
+      reject(new Error('Meeting notes extraction timed out'));
+    }
+  }, timeoutMs);
+
+  const promise = new Promise((resolve, reject) => {
+    pendingInterpretRequests.set(requestId, { resolve, reject });
+  });
+
+  worker.postMessage({ canvasData: canvasData || '', textContent, canvasId: requestId, requestId, mode: 'meetingNotes' });
+
+  promise
+    .then(async (jsonData) => {
+      clearTimeout(timeout);
+      const sourceId = cardId || requestId;
+
+      try {
+        const [extraction] = await db.insert(aiExtractions).values({
+          sourceType: 'canvas',
+          sourceId,
+          extractionType: 'meeting_notes',
+          result: jsonData,
+          confidence: null,
+        }).returning();
+
+        res.json({ ...jsonData, extractionId: extraction.id });
+      } catch (dbErr) {
+        console.error('Error saving meeting notes to DB:', dbErr);
+        res.json({ ...jsonData, saveError: 'Failed to save meeting notes to database' });
+      }
+    })
+    .catch((err) => {
+      clearTimeout(timeout);
+      res.status(500).json({ error: err.message || 'Meeting notes extraction failed' });
     });
 });
 

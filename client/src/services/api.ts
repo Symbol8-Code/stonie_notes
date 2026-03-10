@@ -135,6 +135,8 @@ export interface CanvasInterpretation {
   }>
   /** ID of the saved ai_extractions row, if persisted */
   extractionId?: string
+  /** Present when the DB save failed — result is valid but not persisted */
+  saveError?: string
 }
 
 export function interpretCanvas(canvasData: string, cardId?: string, mode?: 'interpret' | 'readText', blockId?: string): Promise<CanvasInterpretation> {
@@ -154,10 +156,57 @@ export interface AiExtraction {
   createdAt: string
 }
 
-export function getExtractions(sourceId: string, prefix?: boolean): Promise<AiExtraction[]> {
+// ── Meeting Notes ─────────────────────────────────
+
+export interface MeetingNotesDiscussionPoint {
+  topic: string
+  details: string
+}
+
+export interface MeetingNotesNextStep {
+  action: string
+  owner: string | null
+  due_date: string | null
+}
+
+export interface MeetingNotesResult {
+  title: string
+  date: string | null
+  attendees: string[]
+  summary: string
+  agenda_items: string[]
+  discussion_points: MeetingNotesDiscussionPoint[]
+  decisions: string[]
+  next_steps: MeetingNotesNextStep[]
+  notes: string | null
+  extractionId?: string
+  /** Present when the DB save failed — result is valid but not persisted */
+  saveError?: string
+}
+
+export function writeMeetingNotes(
+  canvasData: string | null,
+  textContent: string,
+  cardId?: string,
+): Promise<MeetingNotesResult> {
+  return request('/v1/cards/meeting-notes', {
+    method: 'POST',
+    body: JSON.stringify({ canvasData, textContent, cardId }),
+  })
+}
+
+export function getExtractions(sourceId: string, prefix?: boolean, extractionType?: string): Promise<AiExtraction[]> {
   const params = new URLSearchParams({ sourceId })
   if (prefix) params.set('prefix', '1')
+  if (extractionType) params.set('extractionType', extractionType)
   return request(`/v1/extractions?${params}`)
+}
+
+export function getMeetingNotes(cardId: string): Promise<MeetingNotesResult | null> {
+  return getExtractions(cardId, false, 'meeting_notes').then((extractions) => {
+    if (extractions.length === 0) return null
+    return extractions[0].result as unknown as MeetingNotesResult
+  })
 }
 
 // ── Legacy (existing prototype) ────────────────────

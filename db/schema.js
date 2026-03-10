@@ -38,7 +38,7 @@ const syncModeEnum = pgEnum('sync_mode', [
 ]);
 
 const extractionTypeEnum = pgEnum('extraction_type', [
-  'text', 'items', 'relationships', 'action_items', 'tags',
+  'text', 'items', 'relationships', 'action_items', 'tags', 'meeting_notes',
 ]);
 
 const extractionSourceEnum = pgEnum('extraction_source', [
@@ -190,7 +190,7 @@ const integrationLinks = pgTable('integration_links', {
 const aiExtractions = pgTable('ai_extractions', {
   id: uuid('id').primaryKey().defaultRandom(),
   sourceType: extractionSourceEnum('source_type').notNull(),
-  sourceId: uuid('source_id').notNull(),
+  sourceId: text('source_id').notNull(),
   extractionType: extractionTypeEnum('extraction_type').notNull(),
   result: jsonb('result').notNull(),
   confidence: real('confidence'),

@@ -1813,6 +1813,44 @@ kbd {
   flex-shrink: 0;
 }
 
+.interpret-unsaved-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #dc2626;
+  background: #fef2f2;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  border: 1px solid #dc2626;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.interpret-result-unsaved {
+  border-color: #dc2626;
+}
+
+.interpret-result-unsaved .interpret-result-header {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.interpret-result-unsaved .interpret-result-header:hover {
+  background: rgba(220, 38, 38, 0.15);
+}
+
+.meeting-notes-unsaved {
+  border-color: #dc2626;
+}
+
+.meeting-notes-unsaved .meeting-notes-header {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.meeting-notes-unsaved .meeting-notes-header:hover {
+  background: rgba(220, 38, 38, 0.15);
+}
+
 .interpret-result-header {
   display: flex;
   align-items: center;
@@ -1995,6 +2033,180 @@ kbd {
   font-size: 16px;
   color: #991b1b;
   padding: 0 4px;
+}
+
+/* ── Meeting Notes ─────────────────────────────── */
+
+.card-editor-meeting-notes-area {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-meeting-notes {
+  background: var(--color-surface);
+  color: #7c3aed;
+  border: 1px solid #7c3aed;
+  border-radius: var(--radius-full);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.btn-meeting-notes:hover:not(:disabled) {
+  background: #7c3aed;
+  color: white;
+}
+
+.btn-meeting-notes:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.meeting-notes-result {
+  margin-top: 10px;
+  border: 1px solid #7c3aed;
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+.meeting-notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(124, 58, 237, 0.08);
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+
+.meeting-notes-header:hover {
+  background: rgba(124, 58, 237, 0.15);
+}
+
+.meeting-notes-collapsed .meeting-notes-header {
+  border-bottom: none;
+}
+
+.meeting-notes-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.meeting-notes-title-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #7c3aed;
+}
+
+.meeting-notes-title-preview {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meeting-notes-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.meeting-notes-body {
+  padding: 16px;
+}
+
+.meeting-notes-body h3.meeting-notes-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--color-text);
+}
+
+.meeting-notes-date,
+.meeting-notes-attendees {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin: 0 0 4px 0;
+}
+
+.meeting-notes-section {
+  margin-top: 14px;
+}
+
+.meeting-notes-section h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin: 0 0 6px 0;
+}
+
+.meeting-notes-section p {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text);
+  margin: 0 0 4px 0;
+}
+
+.meeting-notes-section ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.meeting-notes-section li {
+  font-size: 13px;
+  padding: 5px 10px;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+}
+
+.meeting-notes-discussion-point {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+}
+
+.meeting-notes-discussion-point strong {
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.meeting-notes-discussion-point p {
+  font-size: 13px;
+  margin: 4px 0 0 0;
+}
+
+.meeting-notes-next-steps li {
+  border-left: 3px solid #7c3aed;
+}
+
+.meeting-notes-owner {
+  font-weight: 500;
+  color: #7c3aed;
+}
+
+.meeting-notes-due {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-style: italic;
 }
 
 /* ── Boards ────────────────────────────────────── */

@@ -24,6 +24,88 @@ parentPort.on('message', async (data) => {
 
   console.log("Worker 'canvasProcessor': sending to llm, mode:", mode || 'interpret');
 
+  // Meeting notes mode: extract structured meeting notes from all card content
+  if (mode === 'meetingNotes') {
+    const { textContent } = data; // additional text content from typed blocks
+    const meetingNotesPrompt = `You are analyzing notes from a meeting. The content may include handwritten drawings/diagrams and typed text.
+
+${textContent ? `Typed text content from the notes:\n---\n${textContent}\n---\n` : ''}
+
+${canvasData ? 'An image of handwritten/drawn content from the meeting is also attached.' : ''}
+
+Please extract and write up structured meeting notes suitable for emailing to participants and storing as a formal record. 
+Do make up any topics that are not explicitly mentioned. You may provide some interpretation but if should be grounded in what is written. 
+
+Return ONLY valid JSON in this exact format:
+{
+  "title": "Meeting title or topic (inferred from content)",
+  "date": "Meeting date if mentioned, otherwise null",
+  "attendees": ["List of attendees if mentioned, otherwise empty array"],
+  "summary": "A concise 2-3 sentence summary of what was discussed",
+  "agenda_items": ["List of agenda items or topics discussed"],
+  "discussion_points": [
+    {
+      "topic": "Topic heading",
+      "details": "Key points discussed under this topic"
+    }
+  ],
+  "decisions": ["List of decisions made during the meeting"],
+  "next_steps": [
+    {
+      "action": "Description of the action item",
+      "owner": "Person responsible (if mentioned, otherwise null)",
+      "due_date": "Due date if mentioned, otherwise null"
+    }
+  ],
+  "notes": "Any additional notes or context that don't fit the above categories"
+}
+
+Be thorough in extracting all content. If information for a field isn't available, use null for strings or empty arrays for lists.`;
+
+    try {
+      const messageContent = [{ type: "text", text: meetingNotesPrompt }];
+      if (canvasData) {
+        messageContent.push({ type: "image_url", image_url: { url: canvasData } });
+      }
+
+      const chatCompletion = await client.chat.completions.create({
+        messages: [{ role: 'user', content: messageContent }],
+        model: 'gpt-4o',
+      });
+
+      const rawResponse = chatCompletion.choices[0].message.content.trim();
+      console.log("Worker 'canvasProcessor': meetingNotes response size:", rawResponse.length);
+
+      let jsonData;
+      try {
+        const cleaned = rawResponse.replace(/```json\n?/, '').replace(/\n?```/, '');
+        jsonData = JSON.parse(cleaned);
+      } catch (parseErr) {
+        console.error('Error parsing meeting notes JSON:', parseErr);
+        parentPort.postMessage({ success: false, message: 'Invalid JSON in meeting notes response', error: parseErr, canvasId, requestId });
+        return;
+      }
+
+      // Save raw response to file for debugging
+      const llmResponseFilePath = path.join(rootDir, 'saved_canvases', `${canvasId}_meeting_notes_llm.txt`);
+      fs.writeFile(llmResponseFilePath, rawResponse, (err) => {
+        if (err) console.error('Error saving meeting notes LLM response:', err);
+      });
+
+      parentPort.postMessage({
+        success: true,
+        message: 'Meeting notes extracted successfully',
+        canvasId,
+        requestId,
+        jsonData
+      });
+    } catch (error) {
+      console.error('Error in meetingNotes mode:', error);
+      parentPort.postMessage({ success: false, message: 'Meeting notes extraction failed', error, canvasId, requestId });
+    }
+    return;
+  }
+
   // Simple text extraction mode for reading handwritten text (e.g. headings)
   if (mode === 'readText') {
     const readTextPrompt = `Read the handwritten text in this image. Return ONLY the exact words/text that are written, nothing else. Do not describe the image. Do not add quotes. Just output the literal text content.`;
@@ -142,27 +224,21 @@ If items have no clear bounding boxes, estimate reasonable positions.`;
   //pretty print jsonData
   console.log(JSON.stringify(jsonData, null, 2));
 
-  //Save jsonData to a file
+  // Send result back immediately — don't wait for file I/O
+  parentPort.postMessage({ success: true, message: 'Canvas interpreted successfully', canvasId, requestId, jsonData });
+
+  //Save jsonData to a file (background, non-blocking)
   const jsonFileName = `${canvasId}.json`;
   const jsonFilePath = path.join(rootDir, 'saved_canvases', jsonFileName);
   fs.writeFile(jsonFilePath, JSON.stringify(jsonData, null, 2), (err) => {
-    if (err) {
-      console.error('Error saving JSON data:', err);
-    } else {
-      console.log('JSON data saved successfully');
-    }
+    if (err) console.error('Error saving JSON data:', err);
   });
 
-  //Save image to a file
+  //Save image to a file (background, non-blocking)
   const fileName = `${canvasId}.png`;
   const filePath = path.join(rootDir, 'saved_canvases', fileName);
-
   fs.writeFile(filePath, base64Data, 'base64', (err) => {
-    if (err) {
-      parentPort.postMessage({ success: false, message: 'Failed to save canvas', error: err, canvasId, requestId });
-    } else {
-      parentPort.postMessage({ success: true, message: 'Canvas saved successfully', fileName: path.basename(filePath), canvasId, requestId, jsonData });
-    }
+    if (err) console.error('Error saving canvas image:', err);
   });
 
   //Mark the canvas up with the json data

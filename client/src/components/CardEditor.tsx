@@ -9,9 +9,9 @@ import { useInputModeContext } from '@/contexts/InputModeContext'
 import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId } from '@/utils/cardBlocks'
 import { hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
-import { interpretCanvas, getExtractions, listBoards, getBoardsForCard, setBoardsForCard } from '@/services/api'
+import { interpretCanvas, getExtractions, getMeetingNotes, listBoards, getBoardsForCard, setBoardsForCard, writeMeetingNotes } from '@/services/api'
 import { useOnlineContext } from '@/contexts/OnlineContext'
-import type { CanvasInterpretation } from '@/services/api'
+import type { CanvasInterpretation, MeetingNotesResult } from '@/services/api'
 import type { Card, Board, ContentBlock, SectionType, StrokeTool, LineStyle } from '@/types/models'
 
 type EditorMode = 'keyboard' | 'pen'
@@ -74,6 +74,11 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   const [penPaletteOpen, setPenPaletteOpen] = useState(true)
   const [savedInterpretations, setSavedInterpretations] = useState<Map<string, CanvasInterpretation>>(new Map())
   const [savedExtractionCreatedAt, setSavedExtractionCreatedAt] = useState<string | null>(null)
+
+  // Meeting notes state
+  const [meetingNotes, setMeetingNotes] = useState<MeetingNotesResult | null>(null)
+  const [meetingNotesLoading, setMeetingNotesLoading] = useState(false)
+  const [meetingNotesError, setMeetingNotesError] = useState<string | null>(null)
 
   // Board selector state
   const [allBoards, setAllBoards] = useState<Board[]>([])
@@ -153,6 +158,17 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card?.id])
 
+  // Load saved meeting notes from DB when editing an existing card
+  useEffect(() => {
+    if (!card?.id) return
+    let cancelled = false
+    getMeetingNotes(card.id).then((notes) => {
+      if (cancelled || !notes) return
+      setMeetingNotes(notes)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [card?.id])
+
   // Build save data from current state
   const buildSaveData = useCallback((): CardEditorSaveData => {
     // Finalize any active drawing canvases — capture strokes, not PNG
@@ -193,6 +209,70 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
 
     onSave({ ...data, boardIds: Array.from(selectedBoardIds) } as CardEditorSaveData)
   }, [buildSaveData, onSave, card?.id, online, selectedBoardIds])
+
+  const handleMeetingNotes = useCallback(async () => {
+    setMeetingNotesLoading(true)
+    setMeetingNotesError(null)
+    try {
+      // Gather all text content from blocks
+      const textParts: string[] = []
+      for (const block of blocks) {
+        if (block.textContent.trim()) {
+          textParts.push(block.textContent.trim())
+        }
+      }
+      const textContent = textParts.join('\n\n')
+
+      // Gather drawing content — render first block with drawings to an image
+      let canvasDataUrl: string | null = null
+      for (const block of blocks) {
+        // Check active PenCanvas first
+        const handle = penCanvasRefs.current.get(block.id)
+        if (handle?.hasContent()) {
+          canvasDataUrl = handle.toDataURL()
+          break
+        }
+        // Check stored strokes
+        if (hasDrawing(block.drawingContent)) {
+          const strokes = block.drawingContent
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+          for (const stroke of strokes) {
+            for (const p of stroke.points) {
+              if (p.x < minX) minX = p.x
+              if (p.y < minY) minY = p.y
+              if (p.x > maxX) maxX = p.x
+              if (p.y > maxY) maxY = p.y
+            }
+          }
+          const pad = 20
+          const w = Math.max(maxX - minX + pad * 2, 100)
+          const h = Math.max(maxY - minY + pad * 2, 100)
+          const offscreen = document.createElement('canvas')
+          offscreen.width = w
+          offscreen.height = h
+          const ctx = offscreen.getContext('2d')!
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, w, h)
+          ctx.translate(-minX + pad, -minY + pad)
+          const { drawStroke } = await import('@/utils/strokeRenderer')
+          for (const stroke of strokes) {
+            drawStroke(ctx, stroke)
+          }
+          canvasDataUrl = offscreen.toDataURL('image/png')
+          break
+        }
+      }
+
+      if (!textContent && !canvasDataUrl) return
+
+      const result = await writeMeetingNotes(canvasDataUrl, textContent, card?.id)
+      setMeetingNotes(result)
+    } catch (err) {
+      setMeetingNotesError(err instanceof Error ? err.message : 'Meeting notes extraction failed')
+    } finally {
+      setMeetingNotesLoading(false)
+    }
+  }, [blocks, penCanvasRefs, card?.id])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -401,6 +481,37 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
           </div>
         ))}
       </div>
+
+      {/* Meeting notes */}
+      <div className="card-editor-meeting-notes-area">
+        <button
+          className="btn btn-meeting-notes"
+          onClick={handleMeetingNotes}
+          disabled={meetingNotesLoading || !online}
+          title={online ? 'Send card content to AI to write up structured meeting notes' : 'Meeting notes unavailable offline'}
+        >
+          {meetingNotesLoading ? 'Writing up...' : online ? 'Write up Meeting Notes' : 'Meeting Notes (offline)'}
+        </button>
+      </div>
+
+      {meetingNotes && (
+        <MeetingNotesDisplay
+          notes={meetingNotes}
+          onDismiss={() => setMeetingNotes(null)}
+        />
+      )}
+
+      {meetingNotesError && (
+        <div className="interpret-error">
+          {meetingNotesError}
+          <button
+            className="interpret-error-dismiss"
+            onClick={() => setMeetingNotesError(null)}
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Board selector */}
       {boardsLoaded && allBoards.length > 0 && (
@@ -809,16 +920,19 @@ function InterpretationResult({ interpretation, onDismiss, defaultCollapsed = fa
   const [viewMode, setViewMode] = useState<'summary' | 'json'>('summary')
   const [collapsed, setCollapsed] = useState(defaultCollapsed)
 
+  const items = interpretation.items ?? []
+  const relationships = interpretation.relationships ?? []
+
   const itemMap = useMemo(() => {
     const map = new Map<string, string>()
-    for (const item of interpretation.items) {
+    for (const item of items) {
       map.set(item.item_id, item.item)
     }
     return map
-  }, [interpretation.items])
+  }, [items])
 
   return (
-    <div className={`interpret-result ${collapsed ? 'interpret-result-collapsed' : ''} ${outdated ? 'interpret-result-outdated' : ''}`}>
+    <div className={`interpret-result ${collapsed ? 'interpret-result-collapsed' : ''} ${outdated ? 'interpret-result-outdated' : ''} ${interpretation.saveError ? 'interpret-result-unsaved' : ''}`}>
       <div
         className="interpret-result-header"
         onClick={() => setCollapsed((c) => !c)}
@@ -830,6 +944,7 @@ function InterpretationResult({ interpretation, onDismiss, defaultCollapsed = fa
           <span className="interpret-collapse-indicator">{collapsed ? '\u25B6' : '\u25BC'}</span>
           <span className="interpret-result-category">{interpretation.category}</span>
           {outdated && <span className="interpret-outdated-badge">Outdated</span>}
+          {interpretation.saveError && <span className="interpret-unsaved-badge" title={interpretation.saveError}>Unsaved</span>}
           {collapsed && (
             <span className="interpret-result-description-preview">
               {interpretation.description}
@@ -864,22 +979,22 @@ function InterpretationResult({ interpretation, onDismiss, defaultCollapsed = fa
           <div className="interpret-summary">
             <p className="interpret-description">{interpretation.description}</p>
 
-            {interpretation.items.length > 0 && (
+            {items.length > 0 && (
               <div className="interpret-items">
-                <h4>Items ({interpretation.items.length})</h4>
+                <h4>Items ({items.length})</h4>
                 <ul>
-                  {interpretation.items.map((item) => (
+                  {items.map((item) => (
                     <li key={item.item_id}>{item.item}</li>
                   ))}
                 </ul>
               </div>
             )}
 
-            {interpretation.relationships.length > 0 && (
+            {relationships.length > 0 && (
               <div className="interpret-relationships">
-                <h4>Relationships ({interpretation.relationships.length})</h4>
+                <h4>Relationships ({relationships.length})</h4>
                 <ul>
-                  {interpretation.relationships.map((rel) => {
+                  {relationships.map((rel) => {
                     const from = rel.relationship_direction === 'from'
                       ? itemMap.get(rel.item_id) ?? '?'
                       : itemMap.get(rel.related_item_id) ?? '?'
@@ -898,6 +1013,139 @@ function InterpretationResult({ interpretation, onDismiss, defaultCollapsed = fa
           </div>
         ) : (
           <pre className="interpret-json">{JSON.stringify(interpretation, null, 2)}</pre>
+        )
+      )}
+    </div>
+  )
+}
+
+/* ── MeetingNotesDisplay ──────────────────────── */
+
+interface MeetingNotesDisplayProps {
+  notes: MeetingNotesResult
+  onDismiss: () => void
+}
+
+function MeetingNotesDisplay({ notes, onDismiss }: MeetingNotesDisplayProps) {
+  const [viewMode, setViewMode] = useState<'formatted' | 'json'>('formatted')
+  const [collapsed, setCollapsed] = useState(false)
+
+  return (
+    <div className={`meeting-notes-result ${collapsed ? 'meeting-notes-collapsed' : ''} ${notes.saveError ? 'meeting-notes-unsaved' : ''}`}>
+      <div
+        className="meeting-notes-header"
+        onClick={() => setCollapsed((c) => !c)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') setCollapsed((c) => !c) }}
+      >
+        <div className="meeting-notes-header-left">
+          <span className="interpret-collapse-indicator">{collapsed ? '\u25B6' : '\u25BC'}</span>
+          <span className="meeting-notes-title-label">Meeting Notes</span>
+          {notes.saveError && <span className="interpret-unsaved-badge" title={notes.saveError}>Unsaved</span>}
+          {collapsed && notes.title && (
+            <span className="meeting-notes-title-preview">{notes.title}</span>
+          )}
+        </div>
+        <div className="meeting-notes-header-actions" onClick={(e) => e.stopPropagation()}>
+          {!collapsed && (
+            <>
+              <button
+                className={`interpret-view-toggle ${viewMode === 'formatted' ? 'active' : ''}`}
+                onClick={() => setViewMode('formatted')}
+              >
+                Formatted
+              </button>
+              <button
+                className={`interpret-view-toggle ${viewMode === 'json' ? 'active' : ''}`}
+                onClick={() => setViewMode('json')}
+              >
+                JSON
+              </button>
+            </>
+          )}
+          <button className="interpret-result-dismiss" onClick={onDismiss} title="Dismiss">
+            &times;
+          </button>
+        </div>
+      </div>
+
+      {!collapsed && (
+        viewMode === 'formatted' ? (
+          <div className="meeting-notes-body">
+            {notes.title && <h3 className="meeting-notes-title">{notes.title}</h3>}
+
+            {notes.date && (
+              <p className="meeting-notes-date"><strong>Date:</strong> {notes.date}</p>
+            )}
+
+            {notes.attendees.length > 0 && (
+              <p className="meeting-notes-attendees">
+                <strong>Attendees:</strong> {notes.attendees.join(', ')}
+              </p>
+            )}
+
+            {notes.summary && (
+              <div className="meeting-notes-section">
+                <h4>Summary</h4>
+                <p>{notes.summary}</p>
+              </div>
+            )}
+
+            {notes.agenda_items.length > 0 && (
+              <div className="meeting-notes-section">
+                <h4>Agenda</h4>
+                <ul>
+                  {notes.agenda_items.map((item, i) => <li key={i}>{item}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {notes.discussion_points.length > 0 && (
+              <div className="meeting-notes-section">
+                <h4>Discussion</h4>
+                {notes.discussion_points.map((dp, i) => (
+                  <div key={i} className="meeting-notes-discussion-point">
+                    <strong>{dp.topic}</strong>
+                    <p>{dp.details}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {notes.decisions.length > 0 && (
+              <div className="meeting-notes-section">
+                <h4>Decisions</h4>
+                <ul>
+                  {notes.decisions.map((d, i) => <li key={i}>{d}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {notes.next_steps.length > 0 && (
+              <div className="meeting-notes-section meeting-notes-next-steps">
+                <h4>Next Steps</h4>
+                <ul>
+                  {notes.next_steps.map((ns, i) => (
+                    <li key={i}>
+                      {ns.action}
+                      {ns.owner && <span className="meeting-notes-owner"> — {ns.owner}</span>}
+                      {ns.due_date && <span className="meeting-notes-due"> (due: {ns.due_date})</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {notes.notes && (
+              <div className="meeting-notes-section">
+                <h4>Additional Notes</h4>
+                <p>{notes.notes}</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <pre className="interpret-json">{JSON.stringify(notes, null, 2)}</pre>
         )
       )}
     </div>

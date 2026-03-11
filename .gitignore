@@ -3,6 +3,11 @@
 /client/dist
 
 .env
+.env.local
+.env.production
 /saved_canvases/*.json
 /saved_canvases/*.txt
 /saved_canvases/*.png
+
+# Vercel
+.vercel

@@ -12,7 +12,7 @@ import type { PenCanvasHandle } from '@/components/PenCanvas'
 import { interpretCanvas, getExtractions, getMeetingNotes, listBoards, getBoardsForCard, setBoardsForCard, writeMeetingNotes } from '@/services/api'
 import { useOnlineContext } from '@/contexts/OnlineContext'
 import type { CanvasInterpretation, MeetingNotesResult } from '@/services/api'
-import type { Card, Board, ContentBlock, SectionType, StrokeTool, LineStyle } from '@/types/models'
+import type { Card, Board, ContentBlock, SectionType, StrokeTool, LineStyle, PenStroke } from '@/types/models'
 
 type EditorMode = 'keyboard' | 'pen'
 
@@ -88,6 +88,63 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
 
   const penCanvasRefs = useRef<Map<string, PenCanvasHandle>>(new Map())
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ── localStorage draft save/restore for pen drawings ──
+  const draftKey = `stonie-pen-draft-${card?.id ?? 'new'}`
+
+  /** Save current block drawing data to localStorage */
+  const saveDraftToLocalStorage = useCallback(() => {
+    try {
+      // Gather strokes from all active canvases + stored block data
+      const drawingData: Record<string, PenStroke[]> = {}
+      for (const block of blocks) {
+        const handle = penCanvasRefs.current.get(block.id)
+        const strokes = handle?.hasContent() ? handle.getStrokes() : block.drawingContent
+        if (strokes && strokes.length > 0) {
+          drawingData[block.id] = strokes
+        }
+      }
+      if (Object.keys(drawingData).length > 0) {
+        localStorage.setItem(draftKey, JSON.stringify(drawingData))
+      } else {
+        localStorage.removeItem(draftKey)
+      }
+    } catch {
+      // localStorage may be full or unavailable — silently ignore
+    }
+  }, [blocks, draftKey])
+
+  const clearDraftFromLocalStorage = useCallback(() => {
+    try { localStorage.removeItem(draftKey) } catch { /* ignore */ }
+  }, [draftKey])
+
+  // On mount, restore any saved drawing draft into blocks
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(draftKey)
+      if (!saved) return
+      const drawingData: Record<string, PenStroke[]> = JSON.parse(saved)
+      setBlocks((prev) =>
+        prev.map((block) => {
+          const savedStrokes = drawingData[block.id]
+          if (savedStrokes && savedStrokes.length > 0) {
+            // Only restore if the block doesn't already have more drawing content
+            // (e.g. the server version is newer)
+            if (!hasDrawing(block.drawingContent) || block.drawingContent.length <= savedStrokes.length) {
+              return { ...block, drawingContent: savedStrokes }
+            }
+          }
+          return block
+        }),
+      )
+    } catch { /* ignore corrupt data */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /** Called by PenCanvas after each stroke change — triggers localStorage save */
+  const handleStrokeComplete = useCallback(() => {
+    saveDraftToLocalStorage()
+  }, [saveDraftToLocalStorage])
 
   // Load all boards and current card's board associations
   useEffect(() => {
@@ -208,8 +265,9 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
       setBoardsForCard(card.id, Array.from(selectedBoardIds)).catch(() => {})
     }
 
+    clearDraftFromLocalStorage()
     onSave({ ...data, boardIds: Array.from(selectedBoardIds) } as CardEditorSaveData)
-  }, [buildSaveData, onSave, card?.id, online, selectedBoardIds])
+  }, [buildSaveData, onSave, card?.id, online, selectedBoardIds, clearDraftFromLocalStorage])
 
   const handleMeetingNotes = useCallback(async () => {
     setMeetingNotesLoading(true)
@@ -477,6 +535,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
               onToolChange={(tool) => setDrawingTool((prev) => ({ ...prev, tool }))}
               onUndo={handleUndo}
               canUndo={canUndo}
+              onStrokeComplete={handleStrokeComplete}
               onToggleFullscreen={() => {
                 // Finalize drawing before toggling so strokes persist across mount/unmount
                 const handle = penCanvasRefs.current.get(block.id)
@@ -622,6 +681,7 @@ interface SectionBlockProps {
   onToolChange: (tool: StrokeTool) => void
   onUndo: () => void
   canUndo: boolean
+  onStrokeComplete?: () => void
   savedInterpretation?: CanvasInterpretation | null
   cardUpdatedAt?: string
   extractionCreatedAt?: string | null
@@ -647,6 +707,7 @@ function SectionBlock({
   onToolChange,
   onUndo,
   canUndo,
+  onStrokeComplete,
   savedInterpretation: initialInterpretation,
   cardUpdatedAt,
   extractionCreatedAt,
@@ -843,6 +904,7 @@ function SectionBlock({
               className={isHeading ? 'pen-canvas-title' : ''}
               initialStrokes={block.drawingContent}
               onUndoStateChange={onUndoStateChange}
+              onStrokeComplete={onStrokeComplete}
             />
             <div className="pen-canvas-quick-tools">
               <button

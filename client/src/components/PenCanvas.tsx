@@ -34,6 +34,8 @@ interface PenCanvasProps {
   onStrokeErased?: () => void
   /** Called when the undo stack changes (can be used to update UI) */
   onUndoStateChange?: (canUndo: boolean) => void
+  /** Called after any stroke change (draw, erase, undo, move, clear) with current strokes */
+  onStrokeComplete?: (strokes: PenStroke[]) => void
 }
 
 /** An undoable action on the canvas */
@@ -111,6 +113,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     initialStrokes,
     onStrokeErased,
     onUndoStateChange,
+    onStrokeComplete,
   }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const wrapperRef = useRef<HTMLDivElement>(null)
@@ -304,6 +307,10 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       onUndoStateChange?.(undoStackRef.current.length > 0)
     }, [onUndoStateChange])
 
+    const notifyStrokeComplete = useCallback(() => {
+      onStrokeComplete?.([...strokesRef.current])
+    }, [onStrokeComplete])
+
     /** Undo the last draw or erase action */
     const undo = useCallback(() => {
       const action = undoStackRef.current.pop()
@@ -329,7 +336,8 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       invalidateBuffer()
       redraw()
       notifyUndoState()
-    }, [redraw, invalidateBuffer, notifyUndoState])
+      notifyStrokeComplete()
+    }, [redraw, invalidateBuffer, notifyUndoState, notifyStrokeComplete])
 
     /** Erase any stroke near the given point (point is in logical coords) */
     const eraseAtPoint = useCallback((point: StrokePoint) => {
@@ -659,6 +667,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
               dy,
             })
             notifyUndoState()
+            notifyStrokeComplete()
           }
           isDraggingSelectionRef.current = false
           dragStartRef.current = null
@@ -680,6 +689,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
           undoStackRef.current.push({ type: 'erase', strokes: pendingErasedRef.current })
           pendingErasedRef.current = []
           notifyUndoState()
+          notifyStrokeComplete()
         }
         return
       }
@@ -690,10 +700,11 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         undoStackRef.current.push({ type: 'draw' })
         invalidateBuffer()
         notifyUndoState()
+        notifyStrokeComplete()
       }
       currentStrokeRef.current = null
       redraw()
-    }, [notifyUndoState, invalidateBuffer, redraw, tool, finalizeLasso])
+    }, [notifyUndoState, notifyStrokeComplete, invalidateBuffer, redraw, tool, finalizeLasso])
 
     // Attach pointer events natively (React synthetic events coalesce pointer moves)
     useEffect(() => {
@@ -792,6 +803,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         invalidateBuffer()
         redraw()
         notifyUndoState()
+        notifyStrokeComplete()
       },
       undo,
       canUndo() {
@@ -828,7 +840,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         }
         return offscreen.toDataURL('image/png')
       },
-    }), [redraw, undo, invalidateBuffer, notifyUndoState])
+    }), [redraw, undo, invalidateBuffer, notifyUndoState, notifyStrokeComplete])
 
     return (
       <div

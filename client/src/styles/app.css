@@ -1266,6 +1266,43 @@ kbd {
   background: var(--color-surface);
 }
 
+/* Context menu triggered by firm pen press */
+.pen-canvas-context-menu {
+  position: absolute;
+  z-index: 100;
+  transform: translate(-50%, -100%) translateY(-12px);
+  display: flex;
+  gap: 2px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  pointer-events: auto;
+}
+
+.pen-canvas-context-item {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast);
+}
+
+.pen-canvas-context-item:hover:not(:disabled) {
+  background: var(--color-surface);
+}
+
+.pen-canvas-context-item:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* Quick-access tool buttons below canvas */
 .pen-canvas-quick-tools {
   display: flex;

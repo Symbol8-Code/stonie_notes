@@ -15,6 +15,18 @@ export interface PenCanvasHandle {
   undo: () => void
   /** Whether there is an action to undo */
   canUndo: () => boolean
+  /** Copy lasso-selected strokes to clipboard */
+  copySelection: () => void
+  /** Cut lasso-selected strokes (copy + delete) */
+  cutSelection: () => void
+  /** Paste strokes from clipboard, auto-selecting them */
+  pasteStrokes: () => void
+  /** Delete lasso-selected strokes */
+  deleteSelection: () => void
+  /** Whether the clipboard has content to paste */
+  canPaste: () => boolean
+  /** Whether there are selected strokes */
+  hasSelection: () => boolean
 }
 
 interface PenCanvasProps {
@@ -43,6 +55,10 @@ type UndoAction =
   | { type: 'draw' }
   | { type: 'erase'; strokes: { stroke: PenStroke; index: number }[] }
   | { type: 'move'; indices: number[]; dx: number; dy: number }
+  | { type: 'paste'; count: number }
+
+/** Module-level clipboard for copy/paste across canvas instances */
+let strokeClipboard: { strokes: PenStroke[]; centerX: number; centerY: number } | null = null
 
 /** Minimum distance from pointer to stroke segment to count as a hit */
 const ERASER_RADIUS = 12
@@ -50,6 +66,13 @@ const ERASER_RADIUS = 12
 const MIN_SCALE = 0.25
 const MAX_SCALE = 5.0
 const ZOOM_STEP = 0.15
+
+/** Pressure threshold to trigger context menu (0–1 scale) */
+const FIRM_PRESS_THRESHOLD = 0.45
+/** How long (ms) the pen must stay above threshold before the menu opens */
+const FIRM_PRESS_DELAY = 300
+/** Max distance (px) the pointer may drift during the firm hold */
+const FIRM_PRESS_MAX_DRIFT = 8
 
 /** Point-to-line-segment distance */
 function distToSegment(
@@ -153,12 +176,32 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     const lastPinchDistRef = useRef<number | null>(null)
     const lastPinchCenterRef = useRef<{ x: number; y: number } | null>(null)
 
+    // Firm-press context menu state
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+    const firmPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const firmPressOriginRef = useRef<{ x: number; y: number } | null>(null)
+    const firmPressTriggeredRef = useRef(false)
+
     /** Convert screen coords (relative to canvas element) to logical drawing coords */
     const screenToLogical = useCallback((sx: number, sy: number) => {
       return {
         x: (sx - panXRef.current) / scaleRef.current,
         y: (sy - panYRef.current) / scaleRef.current,
       }
+    }, [])
+
+    /** Cancel any pending firm-press timer */
+    const cancelFirmPress = useCallback(() => {
+      if (firmPressTimerRef.current) {
+        clearTimeout(firmPressTimerRef.current)
+        firmPressTimerRef.current = null
+      }
+      firmPressOriginRef.current = null
+    }, [])
+
+    /** Dismiss the context menu */
+    const dismissContextMenu = useCallback(() => {
+      setContextMenu(null)
     }, [])
 
     /** Mark the offscreen stroke buffer as needing a re-render */
@@ -311,6 +354,17 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       onStrokeComplete?.([...strokesRef.current])
     }, [onStrokeComplete])
 
+    /** Clear lasso selection state */
+    const clearSelection = useCallback(() => {
+      selectedIndicesRef.current = []
+      selectionBoundsRef.current = null
+      lassoPointsRef.current = []
+      lassoDrawingRef.current = false
+      isDraggingSelectionRef.current = false
+      dragStartRef.current = null
+      dragTotalRef.current = { dx: 0, dy: 0 }
+    }, [])
+
     /** Undo the last draw or erase action */
     const undo = useCallback(() => {
       const action = undoStackRef.current.pop()
@@ -332,12 +386,16 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
             }
           }
         }
+      } else if (action.type === 'paste') {
+        // Remove the pasted strokes from the end
+        strokesRef.current.splice(strokesRef.current.length - action.count, action.count)
+        clearSelection()
       }
       invalidateBuffer()
       redraw()
       notifyUndoState()
       notifyStrokeComplete()
-    }, [redraw, invalidateBuffer, notifyUndoState, notifyStrokeComplete])
+    }, [redraw, invalidateBuffer, notifyUndoState, notifyStrokeComplete, clearSelection])
 
     /** Erase any stroke near the given point (point is in logical coords) */
     const eraseAtPoint = useCallback((point: StrokePoint) => {
@@ -368,17 +426,6 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         onStrokeErased?.()
       }
     }, [redraw, invalidateBuffer, onStrokeErased])
-
-    /** Clear lasso selection state */
-    const clearSelection = useCallback(() => {
-      selectedIndicesRef.current = []
-      selectionBoundsRef.current = null
-      lassoPointsRef.current = []
-      lassoDrawingRef.current = false
-      isDraggingSelectionRef.current = false
-      dragStartRef.current = null
-      dragTotalRef.current = { dx: 0, dy: 0 }
-    }, [])
 
     /** Finalize the lasso: determine which strokes are selected */
     const finalizeLasso = useCallback(() => {
@@ -420,6 +467,93 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       const pad = 8 / scaleRef.current
       return lx >= b.minX - pad && lx <= b.maxX + pad && ly >= b.minY - pad && ly <= b.maxY + pad
     }, [])
+
+    /** Deep-clone a stroke */
+    const cloneStroke = (s: PenStroke): PenStroke => ({
+      ...s,
+      points: s.points.map((p) => ({ ...p })),
+    })
+
+    /** Copy selected strokes to the module-level clipboard */
+    const copySelection = useCallback(() => {
+      if (selectedIndicesRef.current.length === 0) return
+      const bounds = selectionBoundsRef.current
+      if (!bounds) return
+      const centerX = (bounds.minX + bounds.maxX) / 2
+      const centerY = (bounds.minY + bounds.maxY) / 2
+      strokeClipboard = {
+        strokes: selectedIndicesRef.current.map((idx) => cloneStroke(strokesRef.current[idx])),
+        centerX,
+        centerY,
+      }
+    }, [])
+
+    /** Delete selected strokes (undoable) */
+    const deleteSelection = useCallback(() => {
+      if (selectedIndicesRef.current.length === 0) return
+      // Collect strokes to remove (in ascending index order for correct undo reinsertion)
+      const sorted = [...selectedIndicesRef.current].sort((a, b) => a - b)
+      const removed: { stroke: PenStroke; index: number }[] = sorted.map((idx) => ({
+        stroke: cloneStroke(strokesRef.current[idx]),
+        index: idx,
+      }))
+      // Remove from end to start to keep indices valid
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        strokesRef.current.splice(sorted[i], 1)
+      }
+      undoStackRef.current.push({ type: 'erase', strokes: removed })
+      clearSelection()
+      invalidateBuffer()
+      redraw()
+      notifyUndoState()
+      notifyStrokeComplete()
+    }, [clearSelection, invalidateBuffer, redraw, notifyUndoState, notifyStrokeComplete])
+
+    /** Cut = copy + delete */
+    const cutSelection = useCallback(() => {
+      copySelection()
+      deleteSelection()
+    }, [copySelection, deleteSelection])
+
+    /** Paste from clipboard, centering on the visible viewport, and auto-select the pasted strokes */
+    const pasteStrokes = useCallback(() => {
+      if (!strokeClipboard) return
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      // Center of the current viewport in logical coords
+      const viewCenterLogical = {
+        x: (rect.width / 2 - panXRef.current) / scaleRef.current,
+        y: (rect.height / 2 - panYRef.current) / scaleRef.current,
+      }
+      const offsetX = viewCenterLogical.x - strokeClipboard.centerX
+      const offsetY = viewCenterLogical.y - strokeClipboard.centerY
+      const startIdx = strokesRef.current.length
+      const count = strokeClipboard.strokes.length
+      // Clone and offset strokes
+      for (const s of strokeClipboard.strokes) {
+        const cloned = cloneStroke(s)
+        for (const p of cloned.points) {
+          p.x += offsetX
+          p.y += offsetY
+        }
+        strokesRef.current.push(cloned)
+      }
+      undoStackRef.current.push({ type: 'paste', count })
+      // Auto-select pasted strokes so user can immediately move them
+      const pastedIndices = Array.from({ length: count }, (_, i) => startIdx + i)
+      selectedIndicesRef.current = pastedIndices
+      selectionBoundsRef.current = strokesBounds(strokesRef.current, pastedIndices)
+      lassoPointsRef.current = []
+      lassoDrawingRef.current = false
+      isDraggingSelectionRef.current = false
+      dragStartRef.current = null
+      dragTotalRef.current = { dx: 0, dy: 0 }
+      invalidateBuffer()
+      redraw()
+      notifyUndoState()
+      notifyStrokeComplete()
+    }, [invalidateBuffer, redraw, notifyUndoState, notifyStrokeComplete])
 
     /** Draw the lasso path and selection visuals onto the main canvas */
     const drawLassoOverlay = useCallback(() => {
@@ -495,6 +629,30 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
 
         if (pointerCount > 2) return
 
+        // Dismiss context menu on any tap
+        if (contextMenu) {
+          setContextMenu(null)
+          return
+        }
+
+        // Start firm-press detection for stylus (pointerType === 'pen')
+        firmPressTriggeredRef.current = false
+        if (e.pointerType === 'pen' && e.pressure >= FIRM_PRESS_THRESHOLD) {
+          firmPressOriginRef.current = { x: sx, y: sy }
+          firmPressTimerRef.current = setTimeout(() => {
+            if (!firmPressTriggeredRef.current) {
+              firmPressTriggeredRef.current = true
+              // Cancel any in-progress drawing/lasso/erase
+              drawingRef.current = false
+              currentStrokeRef.current = null
+              lassoDrawingRef.current = false
+              erasingRef.current = false
+              setContextMenu({ x: sx, y: sy })
+              redraw()
+            }
+          }, FIRM_PRESS_DELAY)
+        }
+
         // Single pointer — draw, erase, or lasso
         const point = getPoint(e)
         if (tool === 'lasso') {
@@ -525,7 +683,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
           }
         }
       },
-      [color, strokeWidth, lineStyle, tool, getPoint, eraseAtPoint, redraw, screenToLogical, isInsideSelection, clearSelection, invalidateBuffer],
+      [color, strokeWidth, lineStyle, tool, getPoint, eraseAtPoint, redraw, screenToLogical, isInsideSelection, clearSelection, invalidateBuffer, contextMenu],
     )
 
     const handlePointerMove = useCallback(
@@ -539,6 +697,35 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         if (activePointersRef.current.has(e.pointerId)) {
           activePointersRef.current.set(e.pointerId, { x: sx, y: sy })
         }
+
+        // Firm-press monitoring: cancel if pointer drifts too far or pressure drops
+        if (firmPressTimerRef.current && e.pointerType === 'pen') {
+          const origin = firmPressOriginRef.current
+          if (origin) {
+            const drift = Math.hypot(sx - origin.x, sy - origin.y)
+            if (drift > FIRM_PRESS_MAX_DRIFT || e.pressure < FIRM_PRESS_THRESHOLD) {
+              cancelFirmPress()
+            }
+          }
+        }
+        // Start firm-press timer if pressure just ramped up (wasn't high at pointerdown)
+        if (!firmPressTimerRef.current && !firmPressTriggeredRef.current && e.pointerType === 'pen' && e.pressure >= FIRM_PRESS_THRESHOLD) {
+          firmPressOriginRef.current = { x: sx, y: sy }
+          firmPressTimerRef.current = setTimeout(() => {
+            if (!firmPressTriggeredRef.current) {
+              firmPressTriggeredRef.current = true
+              drawingRef.current = false
+              currentStrokeRef.current = null
+              lassoDrawingRef.current = false
+              erasingRef.current = false
+              setContextMenu({ x: sx, y: sy })
+              redraw()
+            }
+          }, FIRM_PRESS_DELAY)
+        }
+
+        // If context menu was triggered, swallow further move events
+        if (firmPressTriggeredRef.current) return
 
         // Handle pinch zoom
         if (isPinchingRef.current && activePointersRef.current.size === 2) {
@@ -640,11 +827,18 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
           }
         }
       },
-      [getPoint, tool, eraseAtPoint, redraw, zoomAt, screenToLogical, invalidateBuffer],
+      [getPoint, tool, eraseAtPoint, redraw, zoomAt, screenToLogical, invalidateBuffer, cancelFirmPress],
     )
 
     const handlePointerUp = useCallback((e: PointerEvent) => {
+      cancelFirmPress()
       activePointersRef.current.delete(e.pointerId)
+
+      // If firm-press triggered context menu, swallow the pointer up
+      if (firmPressTriggeredRef.current) {
+        firmPressTriggeredRef.current = false
+        return
+      }
 
       if (activePointersRef.current.size < 2) {
         isPinchingRef.current = false
@@ -704,7 +898,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       }
       currentStrokeRef.current = null
       redraw()
-    }, [notifyUndoState, notifyStrokeComplete, invalidateBuffer, redraw, tool, finalizeLasso])
+    }, [notifyUndoState, notifyStrokeComplete, invalidateBuffer, redraw, tool, finalizeLasso, cancelFirmPress])
 
     // Attach pointer events natively (React synthetic events coalesce pointer moves)
     useEffect(() => {
@@ -772,7 +966,27 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       }
     }, [tool, clearSelection, invalidateBuffer, redraw])
 
-    // Escape key clears lasso selection
+    // Dismiss context menu on Escape, and clean up timer on unmount
+    useEffect(() => {
+      return () => {
+        if (firmPressTimerRef.current) clearTimeout(firmPressTimerRef.current)
+      }
+    }, [])
+
+    useEffect(() => {
+      if (!contextMenu) return
+      const dismiss = () => setContextMenu(null)
+      // Dismiss on any click/tap outside the menu (captured on next tick)
+      const timer = setTimeout(() => {
+        window.addEventListener('pointerdown', dismiss, { once: true })
+      }, 0)
+      return () => {
+        clearTimeout(timer)
+        window.removeEventListener('pointerdown', dismiss)
+      }
+    }, [contextMenu])
+
+    // Lasso keyboard shortcuts: Escape, Delete, Copy, Cut, Paste
     useEffect(() => {
       if (tool !== 'lasso') return
       const wrapper = wrapperRef.current
@@ -783,11 +997,23 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
           invalidateBuffer()
           redraw()
           e.preventDefault()
+        } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIndicesRef.current.length > 0) {
+          deleteSelection()
+          e.preventDefault()
+        } else if (e.key === 'c' && (e.ctrlKey || e.metaKey) && selectedIndicesRef.current.length > 0) {
+          copySelection()
+          e.preventDefault()
+        } else if (e.key === 'x' && (e.ctrlKey || e.metaKey) && selectedIndicesRef.current.length > 0) {
+          cutSelection()
+          e.preventDefault()
+        } else if (e.key === 'v' && (e.ctrlKey || e.metaKey)) {
+          pasteStrokes()
+          e.preventDefault()
         }
       }
       wrapper.addEventListener('keydown', onKeyDown)
       return () => wrapper.removeEventListener('keydown', onKeyDown)
-    }, [tool, clearSelection, invalidateBuffer, redraw])
+    }, [tool, clearSelection, invalidateBuffer, redraw, deleteSelection, copySelection, cutSelection, pasteStrokes])
 
     useImperativeHandle(ref, () => ({
       getStrokes() {
@@ -808,6 +1034,16 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       undo,
       canUndo() {
         return undoStackRef.current.length > 0
+      },
+      copySelection,
+      cutSelection,
+      pasteStrokes,
+      deleteSelection,
+      canPaste() {
+        return strokeClipboard !== null && strokeClipboard.strokes.length > 0
+      },
+      hasSelection() {
+        return selectedIndicesRef.current.length > 0
       },
       toDataURL() {
         const canvas = canvasRef.current
@@ -840,7 +1076,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         }
         return offscreen.toDataURL('image/png')
       },
-    }), [redraw, undo, invalidateBuffer, notifyUndoState, notifyStrokeComplete])
+    }), [redraw, undo, invalidateBuffer, notifyUndoState, notifyStrokeComplete, copySelection, cutSelection, pasteStrokes, deleteSelection])
 
     return (
       <div
@@ -880,6 +1116,38 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
             Reset
           </button>
         </div>
+        {contextMenu && (
+          <div
+            className="pen-canvas-context-menu"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              className="pen-canvas-context-item"
+              disabled={selectedIndicesRef.current.length === 0}
+              onClick={() => { copySelection(); dismissContextMenu() }}
+              type="button"
+            >
+              Copy
+            </button>
+            <button
+              className="pen-canvas-context-item"
+              disabled={selectedIndicesRef.current.length === 0}
+              onClick={() => { cutSelection(); dismissContextMenu() }}
+              type="button"
+            >
+              Cut
+            </button>
+            <button
+              className="pen-canvas-context-item"
+              disabled={!strokeClipboard || strokeClipboard.strokes.length === 0}
+              onClick={() => { pasteStrokes(); dismissContextMenu() }}
+              type="button"
+            >
+              Paste
+            </button>
+          </div>
+        )}
       </div>
     )
   },

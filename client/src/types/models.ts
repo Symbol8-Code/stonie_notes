@@ -6,7 +6,7 @@
 export type CardSource = 'pen' | 'keyboard' | 'photo' | 'voice' | 'ai_extracted' | 'integration'
 export type CardStatus = 'open' | 'in_progress' | 'done' | 'archived'
 export type BoardType = 'kanban' | 'list' | 'timeline' | 'custom'
-export type StrokeTool = 'pen' | 'highlighter' | 'eraser'
+export type StrokeTool = 'pen' | 'highlighter' | 'eraser' | 'lasso'
 export type LineStyle = 'solid' | 'dashed' | 'dotted'
 export type InputMode = 'pen' | 'touch' | 'mouse' | 'keyboard'
 

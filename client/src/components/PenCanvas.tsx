@@ -40,6 +40,7 @@ interface PenCanvasProps {
 type UndoAction =
   | { type: 'draw' }
   | { type: 'erase'; strokes: { stroke: PenStroke; index: number }[] }
+  | { type: 'move'; indices: number[]; dx: number; dy: number }
 
 /** Minimum distance from pointer to stroke segment to count as a hit */
 const ERASER_RADIUS = 12
@@ -63,6 +64,33 @@ function distToSegment(
   t = Math.max(0, Math.min(1, t))
 
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+}
+
+/** Ray-casting point-in-polygon test */
+function pointInPolygon(px: number, py: number, polygon: { x: number; y: number }[]): boolean {
+  let inside = false
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y
+    const xj = polygon[j].x, yj = polygon[j].y
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+/** Compute axis-aligned bounding box for a set of strokes */
+function strokesBounds(strokes: PenStroke[], indices: number[]): { minX: number; minY: number; maxX: number; maxY: number } {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const idx of indices) {
+    for (const p of strokes[idx].points) {
+      if (p.x < minX) minX = p.x
+      if (p.y < minY) minY = p.y
+      if (p.x > maxX) maxX = p.x
+      if (p.y > maxY) maxY = p.y
+    }
+  }
+  return { minX, minY, maxX, maxY }
 }
 
 /**
@@ -106,6 +134,15 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     const panXRef = useRef(0)
     const panYRef = useRef(0)
     const [zoomDisplay, setZoomDisplay] = useState(100)
+
+    // Lasso selection state
+    const lassoPointsRef = useRef<{ x: number; y: number }[]>([])
+    const lassoDrawingRef = useRef(false)
+    const selectedIndicesRef = useRef<number[]>([])
+    const selectionBoundsRef = useRef<{ minX: number; minY: number; maxX: number; maxY: number } | null>(null)
+    const isDraggingSelectionRef = useRef(false)
+    const dragStartRef = useRef<{ x: number; y: number } | null>(null)
+    const dragTotalRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
 
     // Pinch-to-zoom tracking
     const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map())
@@ -199,6 +236,9 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         drawStroke(ctx, currentStrokeRef.current)
         ctx.restore()
       }
+
+      // Draw lasso overlay (lasso path + selection bounding box)
+      drawLassoOverlay()
     }, [])
 
     /** Apply zoom centered on a screen point */
@@ -270,10 +310,20 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       if (!action) return
       if (action.type === 'draw') {
         strokesRef.current.pop()
-      } else {
+      } else if (action.type === 'erase') {
         // Re-insert erased strokes at their original indices (ascending order)
         for (const { stroke, index } of action.strokes) {
           strokesRef.current.splice(Math.min(index, strokesRef.current.length), 0, stroke)
+        }
+      } else if (action.type === 'move') {
+        // Reverse the move by translating back
+        for (const idx of action.indices) {
+          if (idx < strokesRef.current.length) {
+            for (const p of strokesRef.current[idx].points) {
+              p.x -= action.dx
+              p.y -= action.dy
+            }
+          }
         }
       }
       invalidateBuffer()
@@ -311,6 +361,104 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       }
     }, [redraw, invalidateBuffer, onStrokeErased])
 
+    /** Clear lasso selection state */
+    const clearSelection = useCallback(() => {
+      selectedIndicesRef.current = []
+      selectionBoundsRef.current = null
+      lassoPointsRef.current = []
+      lassoDrawingRef.current = false
+      isDraggingSelectionRef.current = false
+      dragStartRef.current = null
+      dragTotalRef.current = { dx: 0, dy: 0 }
+    }, [])
+
+    /** Finalize the lasso: determine which strokes are selected */
+    const finalizeLasso = useCallback(() => {
+      const polygon = lassoPointsRef.current
+      if (polygon.length < 3) {
+        clearSelection()
+        invalidateBuffer()
+        redraw()
+        return
+      }
+      // A stroke is selected if any of its points fall inside the lasso polygon
+      const selected: number[] = []
+      strokesRef.current.forEach((stroke, idx) => {
+        for (const p of stroke.points) {
+          if (pointInPolygon(p.x, p.y, polygon)) {
+            selected.push(idx)
+            break
+          }
+        }
+      })
+      lassoDrawingRef.current = false
+      lassoPointsRef.current = []
+      if (selected.length === 0) {
+        clearSelection()
+        invalidateBuffer()
+        redraw()
+        return
+      }
+      selectedIndicesRef.current = selected
+      selectionBoundsRef.current = strokesBounds(strokesRef.current, selected)
+      invalidateBuffer()
+      redraw()
+    }, [clearSelection, invalidateBuffer, redraw])
+
+    /** Check if a logical point is inside the current selection bounding box */
+    const isInsideSelection = useCallback((lx: number, ly: number): boolean => {
+      const b = selectionBoundsRef.current
+      if (!b) return false
+      const pad = 8 / scaleRef.current
+      return lx >= b.minX - pad && lx <= b.maxX + pad && ly >= b.minY - pad && ly <= b.maxY + pad
+    }, [])
+
+    /** Draw the lasso path and selection visuals onto the main canvas */
+    const drawLassoOverlay = useCallback(() => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+
+      ctx.save()
+      ctx.translate(panXRef.current, panYRef.current)
+      ctx.scale(scaleRef.current, scaleRef.current)
+
+      // Draw the in-progress lasso path
+      if (lassoDrawingRef.current && lassoPointsRef.current.length > 1) {
+        ctx.setLineDash([4 / scaleRef.current, 4 / scaleRef.current])
+        ctx.strokeStyle = '#4a6cf7'
+        ctx.lineWidth = 1.5 / scaleRef.current
+        ctx.fillStyle = 'rgba(74, 108, 247, 0.08)'
+        ctx.beginPath()
+        ctx.moveTo(lassoPointsRef.current[0].x, lassoPointsRef.current[0].y)
+        for (let i = 1; i < lassoPointsRef.current.length; i++) {
+          ctx.lineTo(lassoPointsRef.current[i].x, lassoPointsRef.current[i].y)
+        }
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+
+      // Draw selection bounding box
+      const b = selectionBoundsRef.current
+      if (b && selectedIndicesRef.current.length > 0) {
+        const pad = 6 / scaleRef.current
+        ctx.setLineDash([5 / scaleRef.current, 3 / scaleRef.current])
+        ctx.strokeStyle = '#4a6cf7'
+        ctx.lineWidth = 1.5 / scaleRef.current
+        ctx.fillStyle = 'rgba(74, 108, 247, 0.05)'
+        ctx.beginPath()
+        ctx.rect(b.minX - pad, b.minY - pad, b.maxX - b.minX + pad * 2, b.maxY - b.minY + pad * 2)
+        ctx.fill()
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+
+      ctx.restore()
+    }, [])
+
     const handlePointerDown = useCallback(
       (e: PointerEvent) => {
         const canvas = canvasRef.current
@@ -339,9 +487,24 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
 
         if (pointerCount > 2) return
 
-        // Single pointer — draw or erase
+        // Single pointer — draw, erase, or lasso
         const point = getPoint(e)
-        if (tool === 'eraser') {
+        if (tool === 'lasso') {
+          const logical = screenToLogical(sx, sy)
+          // If we have a selection and click inside it, start dragging
+          if (selectedIndicesRef.current.length > 0 && isInsideSelection(logical.x, logical.y)) {
+            isDraggingSelectionRef.current = true
+            dragStartRef.current = { x: logical.x, y: logical.y }
+            dragTotalRef.current = { dx: 0, dy: 0 }
+          } else {
+            // Start a new lasso drawing (clears any previous selection)
+            clearSelection()
+            lassoDrawingRef.current = true
+            lassoPointsRef.current = [{ x: logical.x, y: logical.y }]
+            invalidateBuffer()
+            redraw()
+          }
+        } else if (tool === 'eraser') {
           erasingRef.current = true
           eraseAtPoint(point)
         } else {
@@ -354,7 +517,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
           }
         }
       },
-      [color, strokeWidth, lineStyle, tool, getPoint, eraseAtPoint, redraw],
+      [color, strokeWidth, lineStyle, tool, getPoint, eraseAtPoint, redraw, screenToLogical, isInsideSelection, clearSelection, invalidateBuffer],
     )
 
     const handlePointerMove = useCallback(
@@ -385,6 +548,38 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
 
           lastPinchDistRef.current = dist
           lastPinchCenterRef.current = center
+          return
+        }
+
+        // Handle lasso tool
+        if (tool === 'lasso') {
+          const logical = screenToLogical(sx, sy)
+          if (lassoDrawingRef.current) {
+            lassoPointsRef.current.push({ x: logical.x, y: logical.y })
+            redraw()
+          } else if (isDraggingSelectionRef.current && dragStartRef.current) {
+            const dx = logical.x - dragStartRef.current.x
+            const dy = logical.y - dragStartRef.current.y
+            const ddx = dx - dragTotalRef.current.dx
+            const ddy = dy - dragTotalRef.current.dy
+            // Translate selected strokes incrementally
+            for (const idx of selectedIndicesRef.current) {
+              for (const p of strokesRef.current[idx].points) {
+                p.x += ddx
+                p.y += ddy
+              }
+            }
+            dragTotalRef.current = { dx, dy }
+            // Update selection bounds
+            if (selectionBoundsRef.current) {
+              selectionBoundsRef.current.minX += ddx
+              selectionBoundsRef.current.minY += ddy
+              selectionBoundsRef.current.maxX += ddx
+              selectionBoundsRef.current.maxY += ddy
+            }
+            invalidateBuffer()
+            redraw()
+          }
           return
         }
 
@@ -437,7 +632,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
           }
         }
       },
-      [getPoint, tool, eraseAtPoint, redraw, zoomAt],
+      [getPoint, tool, eraseAtPoint, redraw, zoomAt, screenToLogical, invalidateBuffer],
     )
 
     const handlePointerUp = useCallback((e: PointerEvent) => {
@@ -447,6 +642,35 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         isPinchingRef.current = false
         lastPinchDistRef.current = null
         lastPinchCenterRef.current = null
+      }
+
+      // Handle lasso tool pointer up
+      if (tool === 'lasso') {
+        if (lassoDrawingRef.current) {
+          finalizeLasso()
+        } else if (isDraggingSelectionRef.current) {
+          // Commit the move as an undoable action
+          const { dx, dy } = dragTotalRef.current
+          if (dx !== 0 || dy !== 0) {
+            undoStackRef.current.push({
+              type: 'move',
+              indices: [...selectedIndicesRef.current],
+              dx,
+              dy,
+            })
+            notifyUndoState()
+          }
+          isDraggingSelectionRef.current = false
+          dragStartRef.current = null
+          dragTotalRef.current = { dx: 0, dy: 0 }
+          // Recompute bounds after move
+          if (selectedIndicesRef.current.length > 0) {
+            selectionBoundsRef.current = strokesBounds(strokesRef.current, selectedIndicesRef.current)
+          }
+          invalidateBuffer()
+          redraw()
+        }
+        return
       }
 
       if (erasingRef.current) {
@@ -469,7 +693,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       }
       currentStrokeRef.current = null
       redraw()
-    }, [notifyUndoState, invalidateBuffer, redraw])
+    }, [notifyUndoState, invalidateBuffer, redraw, tool, finalizeLasso])
 
     // Attach pointer events natively (React synthetic events coalesce pointer moves)
     useEffect(() => {
@@ -527,6 +751,32 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       wrapper.addEventListener('keydown', onKeyDown)
       return () => wrapper.removeEventListener('keydown', onKeyDown)
     }, [undo, zoomCenter, resetZoom])
+
+    // Clear lasso selection when switching to a different tool
+    useEffect(() => {
+      if (tool !== 'lasso') {
+        clearSelection()
+        invalidateBuffer()
+        redraw()
+      }
+    }, [tool, clearSelection, invalidateBuffer, redraw])
+
+    // Escape key clears lasso selection
+    useEffect(() => {
+      if (tool !== 'lasso') return
+      const wrapper = wrapperRef.current
+      if (!wrapper) return
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && selectedIndicesRef.current.length > 0) {
+          clearSelection()
+          invalidateBuffer()
+          redraw()
+          e.preventDefault()
+        }
+      }
+      wrapper.addEventListener('keydown', onKeyDown)
+      return () => wrapper.removeEventListener('keydown', onKeyDown)
+    }, [tool, clearSelection, invalidateBuffer, redraw])
 
     useImperativeHandle(ref, () => ({
       getStrokes() {
@@ -588,7 +838,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       >
         <canvas
           ref={canvasRef}
-          className={`pen-canvas ${tool === 'eraser' ? 'pen-canvas-eraser' : ''}`}
+          className={`pen-canvas ${tool === 'eraser' ? 'pen-canvas-eraser' : tool === 'lasso' ? 'pen-canvas-lasso' : ''}`}
           style={{ touchAction: 'none' }}
         />
         <div className="pen-canvas-zoom-controls">

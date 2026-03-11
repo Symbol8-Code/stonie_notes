@@ -1057,6 +1057,11 @@ kbd {
   cursor: not-allowed;
 }
 
+/* Lasso cursor */
+.pen-canvas-lasso {
+  cursor: crosshair;
+}
+
 /* ── Pen Palette Slider (right-hand panel) ───── */
 
 .pen-palette-slider {

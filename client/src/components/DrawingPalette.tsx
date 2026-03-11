@@ -50,7 +50,7 @@ export function DrawingPalette({
   onUndo,
   onClear,
 }: DrawingPaletteProps) {
-  const isEraser = tool === 'eraser'
+  const isEraser = tool === 'eraser' || tool === 'lasso'
 
   return (
     <div className="drawing-palette">
@@ -71,6 +71,14 @@ export function DrawingPalette({
           type="button"
         >
           Eraser
+        </button>
+        <button
+          className={`drawing-palette-tool ${tool === 'lasso' ? 'active' : ''}`}
+          onClick={() => onToolChange('lasso')}
+          title="Lasso select tool"
+          type="button"
+        >
+          Lasso
         </button>
         {onUndo && (
           <button

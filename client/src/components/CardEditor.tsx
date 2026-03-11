@@ -862,6 +862,14 @@ function SectionBlock({
                 Eraser
               </button>
               <button
+                className={`pen-canvas-quick-btn ${drawingTool.tool === 'lasso' ? 'active' : ''}`}
+                onClick={(e) => { e.stopPropagation(); onToolChange('lasso') }}
+                title="Lasso select tool"
+                type="button"
+              >
+                Lasso
+              </button>
+              <button
                 className="pen-canvas-quick-btn"
                 onClick={(e) => { e.stopPropagation(); onUndo() }}
                 disabled={!canUndo}

@@ -34,6 +34,7 @@ interface DrawingPaletteProps {
   onStrokeWidthChange: (width: number) => void
   onLineStyleChange: (style: LineStyle) => void
   onUndo?: () => void
+  onClear?: () => void
 }
 
 export function DrawingPalette({
@@ -47,6 +48,7 @@ export function DrawingPalette({
   onStrokeWidthChange,
   onLineStyleChange,
   onUndo,
+  onClear,
 }: DrawingPaletteProps) {
   const isEraser = tool === 'eraser'
 
@@ -135,6 +137,26 @@ export function DrawingPalette({
           </button>
         ))}
       </div>
+
+      {onClear && (
+        <>
+          <div className="drawing-palette-divider" />
+          <div className="drawing-palette-group">
+            <button
+              className="drawing-palette-tool drawing-palette-clear"
+              onClick={() => {
+                if (window.confirm('Clear all strokes on this canvas?')) {
+                  onClear()
+                }
+              }}
+              title="Clear canvas"
+              type="button"
+            >
+              Clear
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

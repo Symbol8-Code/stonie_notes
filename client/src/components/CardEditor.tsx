@@ -474,6 +474,9 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
               cardUpdatedAt={card?.updatedAt}
               extractionCreatedAt={savedExtractionCreatedAt}
               onUndoStateChange={setCanUndo}
+              onToolChange={(tool) => setDrawingTool((prev) => ({ ...prev, tool }))}
+              onUndo={handleUndo}
+              canUndo={canUndo}
               onToggleFullscreen={() => {
                 // Finalize drawing before toggling so strokes persist across mount/unmount
                 const handle = penCanvasRefs.current.get(block.id)
@@ -570,6 +573,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
           onStrokeWidthChange={(strokeWidth) => setDrawingTool((prev) => ({ ...prev, strokeWidth }))}
           onLineStyleChange={(lineStyle) => setDrawingTool((prev) => ({ ...prev, lineStyle }))}
           onUndo={handleUndo}
+          onClear={() => handleClearDrawing(activeBlockId)}
         />
       </div>
     </div>,
@@ -615,6 +619,9 @@ interface SectionBlockProps {
   cardId?: string
   online: boolean
   onUndoStateChange: (canUndo: boolean) => void
+  onToolChange: (tool: StrokeTool) => void
+  onUndo: () => void
+  canUndo: boolean
   savedInterpretation?: CanvasInterpretation | null
   cardUpdatedAt?: string
   extractionCreatedAt?: string | null
@@ -637,6 +644,9 @@ function SectionBlock({
   cardId,
   online,
   onUndoStateChange,
+  onToolChange,
+  onUndo,
+  canUndo,
   savedInterpretation: initialInterpretation,
   cardUpdatedAt,
   extractionCreatedAt,
@@ -834,16 +844,33 @@ function SectionBlock({
               initialStrokes={block.drawingContent}
               onUndoStateChange={onUndoStateChange}
             />
-            <button
-              className="pen-canvas-clear"
-              onClick={(e) => {
-                e.stopPropagation()
-                onClearDrawing()
-              }}
-              title="Clear drawing"
-            >
-              Clear
-            </button>
+            <div className="pen-canvas-quick-tools">
+              <button
+                className={`pen-canvas-quick-btn ${drawingTool.tool === 'pen' ? 'active' : ''}`}
+                onClick={(e) => { e.stopPropagation(); onToolChange('pen') }}
+                title="Pen tool"
+                type="button"
+              >
+                Pen
+              </button>
+              <button
+                className={`pen-canvas-quick-btn ${drawingTool.tool === 'eraser' ? 'active' : ''}`}
+                onClick={(e) => { e.stopPropagation(); onToolChange('eraser') }}
+                title="Eraser tool"
+                type="button"
+              >
+                Eraser
+              </button>
+              <button
+                className="pen-canvas-quick-btn"
+                onClick={(e) => { e.stopPropagation(); onUndo() }}
+                disabled={!canUndo}
+                title="Undo (Ctrl+Z)"
+                type="button"
+              >
+                Undo
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1261,6 +1261,56 @@ kbd {
   background: var(--color-surface);
 }
 
+/* Quick-access tool buttons below canvas */
+.pen-canvas-quick-tools {
+  display: flex;
+  gap: 4px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.pen-canvas-quick-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: background var(--transition-fast),
+              color var(--transition-fast),
+              border-color var(--transition-fast);
+}
+
+.pen-canvas-quick-btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.pen-canvas-quick-btn.active {
+  background: var(--color-accent);
+  color: white;
+  border-color: var(--color-accent);
+}
+
+.pen-canvas-quick-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Clear button in palette — subtle danger style */
+.drawing-palette-clear {
+  color: var(--color-danger, #dc2626);
+  border-color: var(--color-danger, #dc2626);
+}
+
+.drawing-palette-clear:hover {
+  background: var(--color-danger, #dc2626);
+  color: white;
+  border-color: var(--color-danger, #dc2626);
+}
+
 /* ── Card List ────────────────────────────────── */
 
 /* ── Inbox toolbar (filter + sort) ─────────────── */

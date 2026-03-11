@@ -28,10 +28,12 @@ interface DrawingPaletteProps {
   color: string
   strokeWidth: number
   lineStyle: LineStyle
+  canUndo?: boolean
   onToolChange: (tool: StrokeTool) => void
   onColorChange: (color: string) => void
   onStrokeWidthChange: (width: number) => void
   onLineStyleChange: (style: LineStyle) => void
+  onUndo?: () => void
 }
 
 export function DrawingPalette({
@@ -39,10 +41,12 @@ export function DrawingPalette({
   color,
   strokeWidth,
   lineStyle,
+  canUndo,
   onToolChange,
   onColorChange,
   onStrokeWidthChange,
   onLineStyleChange,
+  onUndo,
 }: DrawingPaletteProps) {
   const isEraser = tool === 'eraser'
 
@@ -66,6 +70,17 @@ export function DrawingPalette({
         >
           Eraser
         </button>
+        {onUndo && (
+          <button
+            className="drawing-palette-tool"
+            onClick={onUndo}
+            disabled={!canUndo}
+            title="Undo (Ctrl+Z)"
+            type="button"
+          >
+            Undo
+          </button>
+        )}
       </div>
 
       <div className="drawing-palette-divider" />

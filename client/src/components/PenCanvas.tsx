@@ -11,6 +11,10 @@ export interface PenCanvasHandle {
   clear: () => void
   /** Export canvas as base64 data URL (PNG) */
   toDataURL: () => string
+  /** Undo the last draw or erase action */
+  undo: () => void
+  /** Whether there is an action to undo */
+  canUndo: () => boolean
 }
 
 interface PenCanvasProps {
@@ -28,7 +32,14 @@ interface PenCanvasProps {
   initialStrokes?: PenStroke[]
   /** Called when strokes are erased */
   onStrokeErased?: () => void
+  /** Called when the undo stack changes (can be used to update UI) */
+  onUndoStateChange?: (canUndo: boolean) => void
 }
+
+/** An undoable action on the canvas */
+type UndoAction =
+  | { type: 'draw' }
+  | { type: 'erase'; strokes: { stroke: PenStroke; index: number }[] }
 
 /** Minimum distance from pointer to stroke segment to count as a hit */
 const ERASER_RADIUS = 12
@@ -71,6 +82,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     className,
     initialStrokes,
     onStrokeErased,
+    onUndoStateChange,
   }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const wrapperRef = useRef<HTMLDivElement>(null)
@@ -78,6 +90,9 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     const currentStrokeRef = useRef<PenStroke | null>(null)
     const drawingRef = useRef(false)
     const erasingRef = useRef(false)
+    const undoStackRef = useRef<UndoAction[]>([])
+    /** Strokes erased during the current drag gesture (batched into one undo action) */
+    const pendingErasedRef = useRef<{ stroke: PenStroke; index: number }[]>([])
 
     // Zoom/pan state — refs to avoid re-renders during gestures
     const scaleRef = useRef(1.0)
@@ -197,22 +212,50 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       }
     }, [screenToLogical])
 
+    const notifyUndoState = useCallback(() => {
+      onUndoStateChange?.(undoStackRef.current.length > 0)
+    }, [onUndoStateChange])
+
+    /** Undo the last draw or erase action */
+    const undo = useCallback(() => {
+      const action = undoStackRef.current.pop()
+      if (!action) return
+      if (action.type === 'draw') {
+        strokesRef.current.pop()
+      } else {
+        // Re-insert erased strokes at their original indices (ascending order)
+        for (const { stroke, index } of action.strokes) {
+          strokesRef.current.splice(Math.min(index, strokesRef.current.length), 0, stroke)
+        }
+      }
+      redraw()
+      notifyUndoState()
+    }, [redraw, notifyUndoState])
+
     /** Erase any stroke near the given point (point is in logical coords) */
     const eraseAtPoint = useCallback((point: StrokePoint) => {
       const before = strokesRef.current.length
       const eraserRadius = ERASER_RADIUS / scaleRef.current
-      strokesRef.current = strokesRef.current.filter((stroke) => {
+      const remaining: PenStroke[] = []
+      strokesRef.current.forEach((stroke, idx) => {
+        let hit = false
         for (let i = 1; i < stroke.points.length; i++) {
           const p0 = stroke.points[i - 1]
           const p1 = stroke.points[i]
           const dist = distToSegment(point.x, point.y, p0.x, p0.y, p1.x, p1.y)
           if (dist < eraserRadius + stroke.width * 0.75) {
-            return false // remove this stroke
+            hit = true
+            break
           }
         }
-        return true // keep
+        if (hit) {
+          pendingErasedRef.current.push({ stroke, index: idx })
+        } else {
+          remaining.push(stroke)
+        }
       })
-      if (strokesRef.current.length !== before) {
+      if (remaining.length !== before) {
+        strokesRef.current = remaining
         redraw()
         onStrokeErased?.()
       }
@@ -347,15 +390,23 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
 
       if (erasingRef.current) {
         erasingRef.current = false
+        // Batch all strokes erased during this drag into one undo action
+        if (pendingErasedRef.current.length > 0) {
+          undoStackRef.current.push({ type: 'erase', strokes: pendingErasedRef.current })
+          pendingErasedRef.current = []
+          notifyUndoState()
+        }
         return
       }
       if (!drawingRef.current) return
       drawingRef.current = false
       if (currentStrokeRef.current && currentStrokeRef.current.points.length > 1) {
         strokesRef.current.push(currentStrokeRef.current)
+        undoStackRef.current.push({ type: 'draw' })
+        notifyUndoState()
       }
       currentStrokeRef.current = null
-    }, [])
+    }, [notifyUndoState])
 
     // Attach pointer events natively (React synthetic events coalesce pointer moves)
     useEffect(() => {
@@ -396,7 +447,10 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       const wrapper = wrapperRef.current
       if (!wrapper) return
       const onKeyDown = (e: KeyboardEvent) => {
-        if (e.key === '+' || e.key === '=') {
+        if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+          undo()
+          e.preventDefault()
+        } else if (e.key === '+' || e.key === '=') {
           zoomCenter(scaleRef.current + ZOOM_STEP)
           e.preventDefault()
         } else if (e.key === '-' || e.key === '_') {
@@ -409,7 +463,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       }
       wrapper.addEventListener('keydown', onKeyDown)
       return () => wrapper.removeEventListener('keydown', onKeyDown)
-    }, [zoomCenter, resetZoom])
+    }, [undo, zoomCenter, resetZoom])
 
     useImperativeHandle(ref, () => ({
       getStrokes() {
@@ -421,7 +475,13 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       clear() {
         strokesRef.current = []
         currentStrokeRef.current = null
+        undoStackRef.current = []
         redraw()
+        notifyUndoState()
+      },
+      undo,
+      canUndo() {
+        return undoStackRef.current.length > 0
       },
       toDataURL() {
         const canvas = canvasRef.current
@@ -454,7 +514,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         }
         return offscreen.toDataURL('image/png')
       },
-    }), [redraw])
+    }), [redraw, undo, notifyUndoState])
 
     return (
       <div

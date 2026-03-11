@@ -72,6 +72,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   const [editorFullscreen, setEditorFullscreen] = useState(false)
   const [fullscreenBlockId, setFullscreenBlockId] = useState<string | null>(null)
   const [penPaletteOpen, setPenPaletteOpen] = useState(true)
+  const [canUndo, setCanUndo] = useState(false)
   const [savedInterpretations, setSavedInterpretations] = useState<Map<string, CanvasInterpretation>>(new Map())
   const [savedExtractionCreatedAt, setSavedExtractionCreatedAt] = useState<string | null>(null)
 
@@ -366,6 +367,16 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
     )
   }, [])
 
+  /** Undo the last stroke on the active canvas */
+  const handleUndo = useCallback(() => {
+    for (const [, handle] of penCanvasRefs.current) {
+      if (handle.canUndo()) {
+        handle.undo()
+        return
+      }
+    }
+  }, [])
+
   /** Register a PenCanvas ref for a section */
   const registerPenRef = useCallback((blockId: string, handle: PenCanvasHandle | null) => {
     if (handle) {
@@ -462,6 +473,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
               savedInterpretation={savedInterpretations.get(block.id) ?? null}
               cardUpdatedAt={card?.updatedAt}
               extractionCreatedAt={savedExtractionCreatedAt}
+              onUndoStateChange={setCanUndo}
               onToggleFullscreen={() => {
                 // Finalize drawing before toggling so strokes persist across mount/unmount
                 const handle = penCanvasRefs.current.get(block.id)
@@ -552,10 +564,12 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
           color={drawingTool.color}
           strokeWidth={drawingTool.strokeWidth}
           lineStyle={drawingTool.lineStyle}
+          canUndo={canUndo}
           onToolChange={(tool) => setDrawingTool((prev) => ({ ...prev, tool }))}
           onColorChange={(color) => setDrawingTool((prev) => ({ ...prev, color }))}
           onStrokeWidthChange={(strokeWidth) => setDrawingTool((prev) => ({ ...prev, strokeWidth }))}
           onLineStyleChange={(lineStyle) => setDrawingTool((prev) => ({ ...prev, lineStyle }))}
+          onUndo={handleUndo}
         />
       </div>
     </div>,
@@ -600,6 +614,7 @@ interface SectionBlockProps {
   penCanvasRefs: React.RefObject<Map<string, PenCanvasHandle>>
   cardId?: string
   online: boolean
+  onUndoStateChange: (canUndo: boolean) => void
   savedInterpretation?: CanvasInterpretation | null
   cardUpdatedAt?: string
   extractionCreatedAt?: string | null
@@ -621,6 +636,7 @@ function SectionBlock({
   penCanvasRefs,
   cardId,
   online,
+  onUndoStateChange,
   savedInterpretation: initialInterpretation,
   cardUpdatedAt,
   extractionCreatedAt,
@@ -816,6 +832,7 @@ function SectionBlock({
               tool={drawingTool.tool}
               className={isHeading ? 'pen-canvas-title' : ''}
               initialStrokes={block.drawingContent}
+              onUndoStateChange={onUndoStateChange}
             />
             <button
               className="pen-canvas-clear"

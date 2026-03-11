@@ -94,6 +94,13 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     /** Strokes erased during the current drag gesture (batched into one undo action) */
     const pendingErasedRef = useRef<{ stroke: PenStroke; index: number }[]>([])
 
+    // Offscreen buffer for completed strokes — avoids re-rendering all strokes every frame
+    const bufferCanvasRef = useRef<HTMLCanvasElement | null>(null)
+    const bufferDirtyRef = useRef(true)
+
+    // Cached bounding rect — updated only on resize, not every pointer event
+    const cachedRectRef = useRef<DOMRect | null>(null)
+
     // Zoom/pan state — refs to avoid re-renders during gestures
     const scaleRef = useRef(1.0)
     const panXRef = useRef(0)
@@ -114,11 +121,17 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       }
     }, [])
 
+    /** Mark the offscreen stroke buffer as needing a re-render */
+    const invalidateBuffer = useCallback(() => {
+      bufferDirtyRef.current = true
+    }, [])
+
     // Resize canvas to match its CSS size at device pixel ratio
     const resizeCanvas = useCallback(() => {
       const canvas = canvasRef.current
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
+      cachedRectRef.current = rect
       const dpr = window.devicePixelRatio || 1
       canvas.width = rect.width * dpr
       canvas.height = rect.height * dpr
@@ -126,8 +139,36 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       if (ctx) {
         ctx.scale(dpr, dpr)
       }
+      // Resize the offscreen buffer to match
+      if (!bufferCanvasRef.current) {
+        bufferCanvasRef.current = document.createElement('canvas')
+      }
+      bufferCanvasRef.current.width = canvas.width
+      bufferCanvasRef.current.height = canvas.height
+      invalidateBuffer()
       // Redraw existing strokes after resize
       redraw()
+    }, [])
+
+    /** Render all completed strokes into the offscreen buffer (only when dirty) */
+    const updateBuffer = useCallback(() => {
+      const buffer = bufferCanvasRef.current
+      if (!buffer || !bufferDirtyRef.current) return
+      bufferDirtyRef.current = false
+      const dpr = window.devicePixelRatio || 1
+      const w = buffer.width / dpr
+      const h = buffer.height / dpr
+      const ctx = buffer.getContext('2d')
+      if (!ctx) return
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, w, h)
+      ctx.save()
+      ctx.translate(panXRef.current, panYRef.current)
+      ctx.scale(scaleRef.current, scaleRef.current)
+      for (const stroke of strokesRef.current) {
+        drawStroke(ctx, stroke)
+      }
+      ctx.restore()
     }, [])
 
     const redraw = useCallback(() => {
@@ -140,19 +181,24 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       const h = canvas.height / dpr
       ctx.clearRect(0, 0, w, h)
 
-      ctx.save()
-      ctx.translate(panXRef.current, panYRef.current)
-      ctx.scale(scaleRef.current, scaleRef.current)
-
-      for (const stroke of strokesRef.current) {
-        drawStroke(ctx, stroke)
+      // Blit the pre-rendered completed strokes
+      updateBuffer()
+      if (bufferCanvasRef.current) {
+        ctx.save()
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+        ctx.drawImage(bufferCanvasRef.current, 0, 0)
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        ctx.restore()
       }
-      // Also draw the in-progress stroke
+
+      // Only the in-progress stroke needs per-frame rendering
       if (currentStrokeRef.current) {
+        ctx.save()
+        ctx.translate(panXRef.current, panYRef.current)
+        ctx.scale(scaleRef.current, scaleRef.current)
         drawStroke(ctx, currentStrokeRef.current)
+        ctx.restore()
       }
-
-      ctx.restore()
     }, [])
 
     /** Apply zoom centered on a screen point */
@@ -163,8 +209,9 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       panYRef.current = screenY - (screenY - panYRef.current) * (newScale / oldScale)
       scaleRef.current = newScale
       setZoomDisplay(Math.round(newScale * 100))
+      invalidateBuffer()
       redraw()
-    }, [redraw])
+    }, [redraw, invalidateBuffer])
 
     /** Zoom centered on the canvas center */
     const zoomCenter = useCallback((newScale: number) => {
@@ -179,8 +226,9 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       panXRef.current = 0
       panYRef.current = 0
       setZoomDisplay(100)
+      invalidateBuffer()
       redraw()
-    }, [redraw])
+    }, [redraw, invalidateBuffer])
 
     useEffect(() => {
       resizeCanvas()
@@ -193,12 +241,12 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     useEffect(() => {
       if (!initialStrokes || initialStrokes.length === 0) return
       strokesRef.current = [...initialStrokes]
+      invalidateBuffer()
       requestAnimationFrame(() => redraw())
-    }, [initialStrokes, redraw])
+    }, [initialStrokes, redraw, invalidateBuffer])
 
     const getPoint = useCallback((e: PointerEvent): StrokePoint => {
-      const canvas = canvasRef.current!
-      const rect = canvas.getBoundingClientRect()
+      const rect = cachedRectRef.current ?? canvasRef.current!.getBoundingClientRect()
       const sx = e.clientX - rect.left
       const sy = e.clientY - rect.top
       const logical = screenToLogical(sx, sy)
@@ -228,9 +276,10 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
           strokesRef.current.splice(Math.min(index, strokesRef.current.length), 0, stroke)
         }
       }
+      invalidateBuffer()
       redraw()
       notifyUndoState()
-    }, [redraw, notifyUndoState])
+    }, [redraw, invalidateBuffer, notifyUndoState])
 
     /** Erase any stroke near the given point (point is in logical coords) */
     const eraseAtPoint = useCallback((point: StrokePoint) => {
@@ -256,17 +305,18 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       })
       if (remaining.length !== before) {
         strokesRef.current = remaining
+        invalidateBuffer()
         redraw()
         onStrokeErased?.()
       }
-    }, [redraw, onStrokeErased])
+    }, [redraw, invalidateBuffer, onStrokeErased])
 
     const handlePointerDown = useCallback(
       (e: PointerEvent) => {
         const canvas = canvasRef.current
         if (!canvas) return
 
-        const rect = canvas.getBoundingClientRect()
+        const rect = cachedRectRef.current ?? canvas.getBoundingClientRect()
         const sx = e.clientX - rect.left
         const sy = e.clientY - rect.top
 
@@ -311,7 +361,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       (e: PointerEvent) => {
         const canvas = canvasRef.current
         if (!canvas) return
-        const rect = canvas.getBoundingClientRect()
+        const rect = cachedRectRef.current ?? canvas.getBoundingClientRect()
         const sx = e.clientX - rect.left
         const sy = e.clientY - rect.top
 
@@ -344,33 +394,44 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         }
 
         if (!drawingRef.current || !currentStrokeRef.current) return
-        const point = getPoint(e)
-        currentStrokeRef.current.points.push(point)
+
+        // Use coalesced events for high-resolution pen input (recovers points
+        // the browser batches together between frames)
+        const coalescedEvents = e.getCoalescedEvents?.() ?? [e]
+        for (const ce of coalescedEvents) {
+          const point = getPoint(ce)
+          currentStrokeRef.current.points.push(point)
+        }
 
         const currentLineStyle = currentStrokeRef.current.lineStyle ?? 'solid'
         if (currentLineStyle !== 'solid') {
-          // Full redraw needed for correct dash pattern
+          // Full redraw needed for correct dash pattern — but buffer is still valid
           redraw()
         } else {
-          // Draw incremental segment for responsiveness (in transformed coords)
+          // Draw incremental segments for responsiveness (in transformed coords)
           const ctx = canvasRef.current?.getContext('2d')
           if (ctx) {
             const pts = currentStrokeRef.current.points
+            const segCount = coalescedEvents.length
             if (pts.length >= 2) {
-              const prev = pts[pts.length - 2]
-              const curr = pts[pts.length - 1]
-              const p = Math.max(curr.pressure, 0.1)
               ctx.save()
               ctx.translate(panXRef.current, panYRef.current)
               ctx.scale(scaleRef.current, scaleRef.current)
               ctx.lineCap = 'round'
               ctx.lineJoin = 'round'
               ctx.strokeStyle = currentStrokeRef.current.color
-              ctx.lineWidth = currentStrokeRef.current.width * (0.3 + p * 1.2)
-              ctx.beginPath()
-              ctx.moveTo(prev.x, prev.y)
-              ctx.lineTo(curr.x, curr.y)
-              ctx.stroke()
+              // Draw all new segments from coalesced events in one batch
+              const startIdx = Math.max(1, pts.length - segCount)
+              for (let i = startIdx; i < pts.length; i++) {
+                const prev = pts[i - 1]
+                const curr = pts[i]
+                const p = Math.max(curr.pressure, 0.1)
+                ctx.lineWidth = currentStrokeRef.current.width * (0.3 + p * 1.2)
+                ctx.beginPath()
+                ctx.moveTo(prev.x, prev.y)
+                ctx.lineTo(curr.x, curr.y)
+                ctx.stroke()
+              }
               ctx.restore()
             }
           }
@@ -403,10 +464,12 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       if (currentStrokeRef.current && currentStrokeRef.current.points.length > 1) {
         strokesRef.current.push(currentStrokeRef.current)
         undoStackRef.current.push({ type: 'draw' })
+        invalidateBuffer()
         notifyUndoState()
       }
       currentStrokeRef.current = null
-    }, [notifyUndoState])
+      redraw()
+    }, [notifyUndoState, invalidateBuffer, redraw])
 
     // Attach pointer events natively (React synthetic events coalesce pointer moves)
     useEffect(() => {
@@ -476,6 +539,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         strokesRef.current = []
         currentStrokeRef.current = null
         undoStackRef.current = []
+        invalidateBuffer()
         redraw()
         notifyUndoState()
       },
@@ -514,7 +578,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         }
         return offscreen.toDataURL('image/png')
       },
-    }), [redraw, undo, notifyUndoState])
+    }), [redraw, undo, invalidateBuffer, notifyUndoState])
 
     return (
       <div

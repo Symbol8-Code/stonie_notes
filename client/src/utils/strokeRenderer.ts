@@ -14,16 +14,34 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: PenStroke) {
   ctx.strokeStyle = color
 
   if (lineStyle === 'solid') {
-    // Fast path: draw each segment individually with pressure-based width
+    // Batch segments with similar pressure into a single path to reduce
+    // GPU pipeline flushes. Pressure is quantized so small variations
+    // don't force a new path.
+    const PRESSURE_THRESHOLD = 0.05
+    let batchWidth = -1
+    ctx.beginPath()
     for (let i = 1; i < points.length; i++) {
       const prev = points[i - 1]
       const curr = points[i]
       const p = Math.max(curr.pressure, 0.1)
-      ctx.lineWidth = width * (0.3 + p * 1.2)
+      const w = width * (0.3 + p * 1.2)
 
-      ctx.beginPath()
-      ctx.moveTo(prev.x, prev.y)
+      if (batchWidth >= 0 && Math.abs(w - batchWidth) > PRESSURE_THRESHOLD * width) {
+        // Pressure changed significantly — flush the current batch
+        ctx.lineWidth = batchWidth
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(prev.x, prev.y)
+      }
+
+      if (batchWidth < 0) {
+        ctx.moveTo(prev.x, prev.y)
+      }
       ctx.lineTo(curr.x, curr.y)
+      batchWidth = w
+    }
+    if (batchWidth >= 0) {
+      ctx.lineWidth = batchWidth
       ctx.stroke()
     }
     return

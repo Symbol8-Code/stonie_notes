@@ -116,9 +116,13 @@ export function SubBlockOverlay({
     }
   }, [subBlock.activeVariationIndex, transitioning])
 
-  // Screen position from logical coordinates
-  const screenX = subBlock.x * scale + panX
-  const screenY = subBlock.y * scale + panY
+  // Chrome offsets: border (2px) + drag handle (18px) + content padding (4px)
+  const chromeTop = 2 + 18 + 4
+  const chromeLeft = 2 + 4
+
+  // Screen position from logical coordinates, offset to align content area
+  const screenX = subBlock.x * scale + panX - chromeLeft
+  const screenY = subBlock.y * scale + panY - chromeTop
   const screenW = subBlock.width * scale
   const screenH = subBlock.height * scale
 

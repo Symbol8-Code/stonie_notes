@@ -750,9 +750,23 @@ function SectionBlock({
   }, [subBlocks, updateSubBlocks, onToolChange])
 
   const handleSubBlockDragMove = useCallback((id: string, x: number, y: number) => {
-    updateSubBlocks(subBlocks.map(sb =>
-      sb.id === id ? { ...sb, x, y } : sb
-    ))
+    updateSubBlocks(subBlocks.map(sb => {
+      if (sb.id !== id) return sb
+      const dx = x - sb.x
+      const dy = y - sb.y
+      // Translate stroke points so they stay aligned with the new position
+      const variations = sb.variations.map(v => {
+        if (!v.strokes) return v
+        return {
+          ...v,
+          strokes: v.strokes.map(s => ({
+            ...s,
+            points: s.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })),
+          })),
+        }
+      })
+      return { ...sb, x, y, variations }
+    }))
   }, [subBlocks, updateSubBlocks])
 
   const handleSubBlockDelete = useCallback((id: string) => {

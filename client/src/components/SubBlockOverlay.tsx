@@ -32,23 +32,10 @@ function DirectStrokeCanvas({ strokes, subBlock, scale }: {
     if (!ctx) return
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Compute actual stroke bounds (matching computeStrokeBounds padding=10)
-    let minX = Infinity, minY = Infinity
-    for (const stroke of strokes) {
-      for (const p of stroke.points) {
-        if (p.x < minX) minX = p.x
-        if (p.y < minY) minY = p.y
-      }
-    }
-    const strokeOriginX = minX - 10
-    const strokeOriginY = minY - 10
-
     ctx.save()
     ctx.scale(dpr, dpr)
-    // Scale to screen coords, then offset by stroke origin so strokes
-    // render relative to the overlay box (not absolute canvas position)
+    // Points are stored relative to sub-block origin, so just scale
     ctx.scale(scale, scale)
-    ctx.translate(-strokeOriginX, -strokeOriginY)
     for (const stroke of strokes) {
       drawStroke(ctx, stroke)
     }

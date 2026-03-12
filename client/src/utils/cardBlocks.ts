@@ -54,12 +54,14 @@ export function computeStrokeBounds(strokes: PenStroke[], padding = 10): { x: nu
  */
 export function createSubBlockFromStrokes(strokes: PenStroke[]): SubBlock {
   const bounds = computeStrokeBounds(strokes)
+  // Store points relative to the sub-block origin so dragging
+  // only needs to update x/y without translating every point.
   const variation: SubBlockVariation = {
     id: nextVariationId(),
     type: 'strokes',
     strokes: strokes.map(s => ({
       ...s,
-      points: s.points.map(p => ({ ...p })),
+      points: s.points.map(p => ({ ...p, x: p.x - bounds.x, y: p.y - bounds.y })),
     })),
     createdAt: new Date().toISOString(),
   }

@@ -750,34 +750,25 @@ function SectionBlock({
   }, [subBlocks, updateSubBlocks, onToolChange])
 
   const handleSubBlockDragMove = useCallback((id: string, x: number, y: number) => {
-    updateSubBlocks(subBlocks.map(sb => {
-      if (sb.id !== id) return sb
-      const dx = x - sb.x
-      const dy = y - sb.y
-      // Translate stroke points so they stay aligned with the new position
-      const variations = sb.variations.map(v => {
-        if (!v.strokes) return v
-        return {
-          ...v,
-          strokes: v.strokes.map(s => ({
-            ...s,
-            points: s.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })),
-          })),
-        }
-      })
-      return { ...sb, x, y, variations }
-    }))
+    // Points are relative to sub-block origin, so just update position
+    updateSubBlocks(subBlocks.map(sb =>
+      sb.id === id ? { ...sb, x, y } : sb
+    ))
   }, [subBlocks, updateSubBlocks])
 
   const handleSubBlockDelete = useCallback((id: string) => {
-    // Re-insert original strokes back into the canvas
+    // Re-insert original strokes back into the canvas (convert relative → absolute)
     const sb = subBlocks.find(s => s.id === id)
     if (sb) {
-      const originalStrokes = sb.variations[0]?.strokes ?? []
-      if (originalStrokes.length > 0) {
+      const relativeStrokes = sb.variations[0]?.strokes ?? []
+      if (relativeStrokes.length > 0) {
         const handle = penCanvasRefs.current.get(block.id)
         if (handle) {
-          handle.addStrokes(originalStrokes)
+          const absoluteStrokes = relativeStrokes.map(s => ({
+            ...s,
+            points: s.points.map(p => ({ ...p, x: p.x + sb.x, y: p.y + sb.y })),
+          }))
+          handle.addStrokes(absoluteStrokes)
         }
       }
     }
@@ -799,15 +790,21 @@ function SectionBlock({
       cy >= sb.y && cy <= sb.y + sb.height
     )
     if (!target) return false
-    // Add stroke to the sub-block's strokes variation and recalculate bounds
+    // Convert stroke points to sub-block-relative coordinates and recalculate bounds
     const updated = subBlocks.map(s => {
       if (s.id !== target.id) return s
+      const relativeStroke = {
+        ...stroke,
+        points: stroke.points.map(p => ({ ...p, x: p.x - s.x, y: p.y - s.y })),
+      }
       const currentStrokes = s.variations[0]?.strokes ?? []
-      const newStrokes = [...currentStrokes, { ...stroke, points: stroke.points.map(p => ({ ...p })) }]
-      const bounds = computeStrokeBounds(newStrokes)
+      const newStrokes = [...currentStrokes, relativeStroke]
+      // Compute new bounds from relative points, then convert back to absolute
+      const relBounds = computeStrokeBounds(newStrokes)
       return {
         ...s,
-        ...bounds,
+        width: relBounds.width,
+        height: relBounds.height,
         variations: s.variations.map((v, i) =>
           i === 0 ? { ...v, strokes: newStrokes } : v
         ),

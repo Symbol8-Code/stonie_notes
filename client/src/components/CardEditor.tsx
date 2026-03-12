@@ -745,7 +745,9 @@ function SectionBlock({
     const sb = createSubBlockFromStrokes(data.strokes)
     updateSubBlocks([...subBlocks, sb])
     setSelectedSubBlockId(sb.id)
-  }, [subBlocks, updateSubBlocks])
+    // Switch back to pen so user can draw into the new sub-block immediately
+    onToolChange('pen')
+  }, [subBlocks, updateSubBlocks, onToolChange])
 
   const handleSubBlockDragMove = useCallback((id: string, x: number, y: number) => {
     updateSubBlocks(subBlocks.map(sb =>

@@ -77,7 +77,6 @@ interface SubBlockOverlayProps {
   onSelect: () => void
   onDragMove: (id: string, x: number, y: number) => void
   onDelete: (id: string) => void
-  onEdit: (id: string) => void
   onInterpret: (id: string, mode: 'readText' | 'interpret' | 'meetingNotes') => void
   onVariationSwitch: (id: string, index: number) => void
   /** Current drawing tool — when 'pen', overlay allows drawing through */
@@ -100,7 +99,6 @@ export function SubBlockOverlay({
   onSelect,
   onDragMove,
   onDelete,
-  onEdit,
   onInterpret,
   onVariationSwitch,
   activeTool,
@@ -334,14 +332,6 @@ export function SubBlockOverlay({
             type="button"
           >
             {interpreting ? '...' : 'Notes'}
-          </button>
-          <button
-            className="subblock-tool-btn subblock-tool-edit"
-            onClick={() => onEdit(subBlock.id)}
-            title="Edit pen strokes"
-            type="button"
-          >
-            Edit
           </button>
           <button
             className="subblock-tool-btn subblock-tool-delete"

@@ -769,22 +769,6 @@ function SectionBlock({
     if (selectedSubBlockId === id) setSelectedSubBlockId(null)
   }, [subBlocks, updateSubBlocks, selectedSubBlockId, block.id, penCanvasRefs])
 
-  const handleSubBlockEdit = useCallback((id: string) => {
-    const sb = subBlocks.find(s => s.id === id)
-    if (!sb) return
-    // Get the original strokes from variation 0
-    const originalStrokes = sb.variations[0]?.strokes ?? []
-    if (originalStrokes.length > 0) {
-      const handle = penCanvasRefs.current.get(block.id)
-      if (handle) {
-        handle.addStrokes(originalStrokes)
-      }
-    }
-    // Remove the sub-block so user can freely edit the strokes on canvas
-    updateSubBlocks(subBlocks.filter(s => s.id !== id))
-    if (selectedSubBlockId === id) setSelectedSubBlockId(null)
-  }, [subBlocks, updateSubBlocks, selectedSubBlockId, block.id, penCanvasRefs])
-
   /** Intercept a newly drawn stroke: if it falls within a sub-block, route it there instead of the main canvas. */
   const handleStrokeDrawn = useCallback((stroke: PenStroke): boolean => {
     if (subBlocks.length === 0) return false
@@ -1120,7 +1104,6 @@ function SectionBlock({
                     onSelect={() => setSelectedSubBlockId(sb.id)}
                     onDragMove={handleSubBlockDragMove}
                     onDelete={handleSubBlockDelete}
-                    onEdit={handleSubBlockEdit}
                     onInterpret={handleSubBlockInterpret}
                     onVariationSwitch={handleSubBlockVariationSwitch}
                     activeTool={drawingTool.tool}

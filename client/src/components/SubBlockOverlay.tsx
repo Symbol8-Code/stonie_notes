@@ -1,8 +1,55 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import type { SubBlock, SubBlockVariation, StrokeTool } from '@/types/models'
+import type { SubBlock, SubBlockVariation, StrokeTool, PenStroke } from '@/types/models'
 import { StrokePreview } from '@/components/StrokePreview'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
+import { drawStroke } from '@/utils/strokeRenderer'
 import type { CanvasInterpretation, MeetingNotesResult } from '@/services/api'
+
+/**
+ * Renders strokes on a canvas using the same coordinate system as PenCanvas.
+ * Instead of normalizing strokes into the container (like StrokePreview),
+ * this offsets by the sub-block's logical position so strokes appear
+ * exactly where the user drew them.
+ */
+function DirectStrokeCanvas({ strokes, subBlock, scale }: {
+  strokes: PenStroke[]
+  subBlock: SubBlock
+  scale: number
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const dpr = window.devicePixelRatio || 1
+    const w = subBlock.width * scale
+    const h = subBlock.height * scale
+    canvas.width = w * dpr
+    canvas.height = h * dpr
+    canvas.style.width = `${w}px`
+    canvas.style.height = `${h}px`
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.save()
+    ctx.scale(dpr, dpr)
+    // Transform: scale to screen coords, then offset by sub-block origin
+    ctx.scale(scale, scale)
+    ctx.translate(-subBlock.x, -subBlock.y)
+    for (const stroke of strokes) {
+      drawStroke(ctx, stroke)
+    }
+    ctx.restore()
+  }, [strokes, subBlock.x, subBlock.y, subBlock.width, subBlock.height, scale])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ display: 'block', width: '100%', height: '100%' }}
+    />
+  )
+}
 
 interface SubBlockOverlayProps {
   subBlock: SubBlock
@@ -129,7 +176,7 @@ export function SubBlockOverlay({
     switch (variation.type) {
       case 'strokes':
         return variation.strokes && variation.strokes.length > 0 ? (
-          <StrokePreview strokes={variation.strokes} className="subblock-stroke-preview" />
+          <DirectStrokeCanvas strokes={variation.strokes} subBlock={subBlock} scale={scale} />
         ) : (
           <div className="subblock-empty">Empty block</div>
         )

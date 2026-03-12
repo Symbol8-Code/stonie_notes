@@ -2657,6 +2657,11 @@ kbd {
   cursor: default;
 }
 
+.subblock-tool-edit {
+  color: #4a6cf7;
+  border-color: #4a6cf7;
+}
+
 .subblock-tool-delete {
   color: #d33;
   border-color: #d33;

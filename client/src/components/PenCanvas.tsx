@@ -29,6 +29,8 @@ export interface PenCanvasHandle {
   hasSelection: () => boolean
   /** Extract selected strokes into a sub-block */
   extractSelection: () => void
+  /** Add strokes to the canvas (e.g. when editing a sub-block's strokes) */
+  addStrokes: (strokes: PenStroke[]) => void
 }
 
 /** Data emitted when creating a sub-block from a lasso selection */
@@ -1095,6 +1097,14 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         return selectedIndicesRef.current.length > 0
       },
       extractSelection,
+      addStrokes(strokes: PenStroke[]) {
+        const cloned = strokes.map(s => cloneStroke(s))
+        strokesRef.current.push(...cloned)
+        invalidateBuffer()
+        redraw()
+        notifyUndoState()
+        notifyStrokeComplete()
+      },
       toDataURL() {
         const canvas = canvasRef.current
         if (!canvas) return ''

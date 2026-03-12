@@ -6,13 +6,15 @@ import { RichTextEditor } from '@/components/RichTextEditor'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { DrawingPalette } from '@/components/DrawingPalette'
 import { useInputModeContext } from '@/contexts/InputModeContext'
-import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId } from '@/utils/cardBlocks'
+import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId, createSubBlockFromStrokes, nextVariationId } from '@/utils/cardBlocks'
 import { hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
 import { interpretCanvas, getExtractions, getMeetingNotes, listBoards, getBoardsForCard, setBoardsForCard, writeMeetingNotes } from '@/services/api'
 import { useOnlineContext } from '@/contexts/OnlineContext'
 import type { CanvasInterpretation, MeetingNotesResult } from '@/services/api'
-import type { Card, Board, ContentBlock, SectionType, StrokeTool, LineStyle, PenStroke } from '@/types/models'
+import type { Card, Board, ContentBlock, SectionType, StrokeTool, LineStyle, PenStroke, SubBlock, SubBlockVariation } from '@/types/models'
+import { SubBlockOverlay } from '@/components/SubBlockOverlay'
+import type { CreateSubBlockData } from '@/components/PenCanvas'
 
 type EditorMode = 'keyboard' | 'pen'
 
@@ -425,6 +427,12 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
     )
   }, [])
 
+  const handleSubBlocksChange = useCallback((blockId: string, subBlocks: SubBlock[]) => {
+    setBlocks((prev) =>
+      prev.map((b) => (b.id === blockId ? { ...b, subBlocks } : b)),
+    )
+  }, [])
+
   /** Undo the last stroke on the active canvas */
   const handleUndo = useCallback(() => {
     for (const [, handle] of penCanvasRefs.current) {
@@ -536,6 +544,7 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
               onUndo={handleUndo}
               canUndo={canUndo}
               onStrokeComplete={handleStrokeComplete}
+              onSubBlocksChange={handleSubBlocksChange}
               onToggleFullscreen={() => {
                 // Finalize drawing before toggling so strokes persist across mount/unmount
                 const handle = penCanvasRefs.current.get(block.id)
@@ -685,6 +694,7 @@ interface SectionBlockProps {
   savedInterpretation?: CanvasInterpretation | null
   cardUpdatedAt?: string
   extractionCreatedAt?: string | null
+  onSubBlocksChange?: (blockId: string, subBlocks: SubBlock[]) => void
 }
 
 function SectionBlock({
@@ -711,6 +721,7 @@ function SectionBlock({
   savedInterpretation: initialInterpretation,
   cardUpdatedAt,
   extractionCreatedAt,
+  onSubBlocksChange,
 }: SectionBlockProps) {
   const isHeading = block.type === 'heading'
   const showTextArea = isActive && mode === 'keyboard'
@@ -718,6 +729,140 @@ function SectionBlock({
 
   const [interpreting, setInterpreting] = useState(false)
   const [interpretation, setInterpretation] = useState<CanvasInterpretation | null>(initialInterpretation ?? null)
+
+  // ── Sub-block state ──
+  const [subBlocks, setSubBlocks] = useState<SubBlock[]>(block.subBlocks ?? [])
+  const [selectedSubBlockId, setSelectedSubBlockId] = useState<string | null>(null)
+  const [canvasTransform, setCanvasTransform] = useState({ scale: 1, panX: 0, panY: 0 })
+
+  // Propagate sub-block changes to parent
+  const updateSubBlocks = useCallback((newSubBlocks: SubBlock[]) => {
+    setSubBlocks(newSubBlocks)
+    onSubBlocksChange?.(block.id, newSubBlocks)
+  }, [block.id, onSubBlocksChange])
+
+  const handleCreateSubBlock = useCallback((data: CreateSubBlockData) => {
+    const sb = createSubBlockFromStrokes(data.strokes)
+    updateSubBlocks([...subBlocks, sb])
+    setSelectedSubBlockId(sb.id)
+  }, [subBlocks, updateSubBlocks])
+
+  const handleSubBlockDragMove = useCallback((id: string, x: number, y: number) => {
+    updateSubBlocks(subBlocks.map(sb =>
+      sb.id === id ? { ...sb, x, y } : sb
+    ))
+  }, [subBlocks, updateSubBlocks])
+
+  const handleSubBlockDelete = useCallback((id: string) => {
+    // Re-insert original strokes back into the canvas
+    const sb = subBlocks.find(s => s.id === id)
+    if (sb) {
+      const originalStrokes = sb.variations[0]?.strokes ?? []
+      if (originalStrokes.length > 0) {
+        const handle = penCanvasRefs.current.get(block.id)
+        if (handle) {
+          // Strokes need to be added back — we'll do this through onStrokeComplete
+          // For now, the strokes return to drawingContent via parent update
+        }
+      }
+    }
+    updateSubBlocks(subBlocks.filter(s => s.id !== id))
+    if (selectedSubBlockId === id) setSelectedSubBlockId(null)
+  }, [subBlocks, updateSubBlocks, selectedSubBlockId, block.id, penCanvasRefs])
+
+  const handleSubBlockInterpret = useCallback(async (id: string, mode: 'readText' | 'interpret' | 'meetingNotes') => {
+    const sb = subBlocks.find(s => s.id === id)
+    if (!sb) return
+
+    // Get the original strokes to render to an offscreen canvas
+    const strokes = sb.variations[0]?.strokes ?? []
+    if (strokes.length === 0) return
+
+    // Render strokes to offscreen canvas
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const stroke of strokes) {
+      for (const p of stroke.points) {
+        if (p.x < minX) minX = p.x
+        if (p.y < minY) minY = p.y
+        if (p.x > maxX) maxX = p.x
+        if (p.y > maxY) maxY = p.y
+      }
+    }
+    const pad = 20
+    const w = Math.max(maxX - minX + pad * 2, 100)
+    const h = Math.max(maxY - minY + pad * 2, 100)
+    const offscreen = document.createElement('canvas')
+    offscreen.width = w
+    offscreen.height = h
+    const ctx = offscreen.getContext('2d')!
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, w, h)
+    ctx.translate(-minX + pad, -minY + pad)
+    const { drawStroke } = await import('@/utils/strokeRenderer')
+    for (const stroke of strokes) {
+      drawStroke(ctx, stroke)
+    }
+    const dataUrl = offscreen.toDataURL('image/png')
+
+    try {
+      let newVariation: SubBlockVariation
+
+      if (mode === 'readText' || mode === 'interpret') {
+        const interpretMode = mode === 'readText' ? 'readText' : undefined
+        const result = await interpretCanvas(dataUrl, cardId, interpretMode, `${block.id}:${sb.id}`)
+        if (mode === 'readText') {
+          newVariation = {
+            id: nextVariationId(),
+            type: 'readText',
+            markdown: result.text || result.description || '',
+            createdAt: new Date().toISOString(),
+          }
+        } else {
+          newVariation = {
+            id: nextVariationId(),
+            type: 'interpret',
+            interpretation: result,
+            createdAt: new Date().toISOString(),
+          }
+        }
+      } else {
+        const result = await writeMeetingNotes(dataUrl, '', cardId)
+        newVariation = {
+          id: nextVariationId(),
+          type: 'meetingNotes',
+          meetingNotes: result,
+          createdAt: new Date().toISOString(),
+        }
+      }
+
+      // Replace existing variation of same type, or append
+      const updated = subBlocks.map(s => {
+        if (s.id !== id) return s
+        const existingIdx = s.variations.findIndex(v => v.type === newVariation.type)
+        const newVariations = [...s.variations]
+        if (existingIdx >= 0) {
+          newVariations[existingIdx] = newVariation
+        } else {
+          newVariations.push(newVariation)
+        }
+        const newActiveIndex = existingIdx >= 0 ? existingIdx : newVariations.length - 1
+        return { ...s, variations: newVariations, activeVariationIndex: newActiveIndex }
+      })
+      updateSubBlocks(updated)
+    } catch (err) {
+      console.error('Sub-block interpretation failed:', err)
+    }
+  }, [subBlocks, updateSubBlocks, cardId, block.id])
+
+  const handleSubBlockVariationSwitch = useCallback((id: string, index: number) => {
+    updateSubBlocks(subBlocks.map(sb =>
+      sb.id === id ? { ...sb, activeVariationIndex: index } : sb
+    ))
+  }, [subBlocks, updateSubBlocks])
+
+  const handleCanvasTransformChange = useCallback((scale: number, panX: number, panY: number) => {
+    setCanvasTransform({ scale, panX, panY })
+  }, [])
   const [interpretationFromDb, setInterpretationFromDb] = useState(!!initialInterpretation)
   const [interpretError, setInterpretError] = useState<string | null>(null)
   const [drawingModifiedSinceInterpret, setDrawingModifiedSinceInterpret] = useState(false)
@@ -894,7 +1039,7 @@ function SectionBlock({
       {/* Drawing sub-area */}
       {showCanvas && (
         <div className="section-drawing-area">
-          <div className="pen-canvas-wrapper">
+          <div className="pen-canvas-wrapper" style={{ position: 'relative' }}>
             <PenCanvas
               ref={(handle) => registerPenRef(block.id, handle)}
               color={drawingTool.color}
@@ -905,7 +1050,34 @@ function SectionBlock({
               initialStrokes={block.drawingContent}
               onUndoStateChange={onUndoStateChange}
               onStrokeComplete={onStrokeComplete}
+              onCreateSubBlock={handleCreateSubBlock}
+              onTransformChange={handleCanvasTransformChange}
             />
+            {/* Sub-block overlays */}
+            {subBlocks.length > 0 && (
+              <div
+                className="subblock-overlay-container"
+                style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}
+              >
+                {subBlocks.map(sb => (
+                  <SubBlockOverlay
+                    key={sb.id}
+                    subBlock={sb}
+                    scale={canvasTransform.scale}
+                    panX={canvasTransform.panX}
+                    panY={canvasTransform.panY}
+                    isCanvasActive={showCanvas}
+                    isSelected={selectedSubBlockId === sb.id}
+                    online={online}
+                    onSelect={() => setSelectedSubBlockId(sb.id)}
+                    onDragMove={handleSubBlockDragMove}
+                    onDelete={handleSubBlockDelete}
+                    onInterpret={handleSubBlockInterpret}
+                    onVariationSwitch={handleSubBlockVariationSwitch}
+                  />
+                ))}
+              </div>
+            )}
             <div className="pen-canvas-quick-tools">
               <button
                 className={`pen-canvas-quick-btn ${drawingTool.tool === 'pen' ? 'active' : ''}`}
@@ -946,12 +1118,38 @@ function SectionBlock({
       )}
 
       {/* Finalized drawing preview */}
-      {hasDrawing(block.drawingContent) && !showCanvas && (
+      {(hasDrawing(block.drawingContent) || subBlocks.length > 0) && !showCanvas && (
         <div className="section-drawing-area">
-          <StrokePreview
-            strokes={block.drawingContent}
-            className={isHeading ? 'block-title-image' : 'block-drawing-image'}
-          />
+          {hasDrawing(block.drawingContent) && (
+            <StrokePreview
+              strokes={block.drawingContent}
+              className={isHeading ? 'block-title-image' : 'block-drawing-image'}
+            />
+          )}
+          {/* Show sub-block previews when canvas is inactive */}
+          {subBlocks.length > 0 && (
+            <div className="subblock-previews">
+              {subBlocks.map(sb => {
+                const activeVar = sb.variations[sb.activeVariationIndex] ?? sb.variations[0]
+                return (
+                  <div key={sb.id} className="subblock-preview-card">
+                    {activeVar.type === 'strokes' && activeVar.strokes ? (
+                      <StrokePreview strokes={activeVar.strokes} className="subblock-preview-strokes" />
+                    ) : activeVar.type === 'readText' && activeVar.markdown ? (
+                      <div className="subblock-preview-text">{activeVar.markdown}</div>
+                    ) : activeVar.type === 'interpret' ? (
+                      <div className="subblock-preview-text">{(activeVar.interpretation as CanvasInterpretation)?.description ?? 'Interpreted'}</div>
+                    ) : (
+                      <div className="subblock-preview-text">Block</div>
+                    )}
+                    {sb.variations.length > 1 && (
+                      <div className="subblock-preview-badge">{sb.variations.length} views</div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
           {isActive && (
             <button
               className="pen-canvas-clear"

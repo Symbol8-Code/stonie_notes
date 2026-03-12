@@ -27,6 +27,14 @@ export interface PenCanvasHandle {
   canPaste: () => boolean
   /** Whether there are selected strokes */
   hasSelection: () => boolean
+  /** Extract selected strokes into a sub-block */
+  extractSelection: () => void
+}
+
+/** Data emitted when creating a sub-block from a lasso selection */
+export interface CreateSubBlockData {
+  strokes: PenStroke[]
+  bounds: { minX: number; minY: number; maxX: number; maxY: number }
 }
 
 interface PenCanvasProps {
@@ -48,6 +56,10 @@ interface PenCanvasProps {
   onUndoStateChange?: (canUndo: boolean) => void
   /** Called after any stroke change (draw, erase, undo, move, clear) with current strokes */
   onStrokeComplete?: (strokes: PenStroke[]) => void
+  /** Called when user creates a sub-block from lasso-selected strokes */
+  onCreateSubBlock?: (data: CreateSubBlockData) => void
+  /** Called when canvas transform (zoom/pan) changes */
+  onTransformChange?: (scale: number, panX: number, panY: number) => void
 }
 
 /** An undoable action on the canvas */
@@ -56,6 +68,7 @@ type UndoAction =
   | { type: 'erase'; strokes: { stroke: PenStroke; index: number }[] }
   | { type: 'move'; indices: number[]; dx: number; dy: number }
   | { type: 'paste'; count: number }
+  | { type: 'extractSubBlock'; strokes: { stroke: PenStroke; index: number }[] }
 
 /** Module-level clipboard for copy/paste across canvas instances */
 let strokeClipboard: { strokes: PenStroke[]; centerX: number; centerY: number } | null = null
@@ -137,6 +150,8 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     onStrokeErased,
     onUndoStateChange,
     onStrokeComplete,
+    onCreateSubBlock,
+    onTransformChange,
   }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const wrapperRef = useRef<HTMLDivElement>(null)
@@ -297,7 +312,8 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       setZoomDisplay(Math.round(newScale * 100))
       invalidateBuffer()
       redraw()
-    }, [redraw, invalidateBuffer])
+      onTransformChange?.(scaleRef.current, panXRef.current, panYRef.current)
+    }, [redraw, invalidateBuffer, onTransformChange])
 
     /** Zoom centered on the canvas center */
     const zoomCenter = useCallback((newScale: number) => {
@@ -314,7 +330,8 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       setZoomDisplay(100)
       invalidateBuffer()
       redraw()
-    }, [redraw, invalidateBuffer])
+      onTransformChange?.(1.0, 0, 0)
+    }, [redraw, invalidateBuffer, onTransformChange])
 
     useEffect(() => {
       resizeCanvas()
@@ -390,6 +407,11 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         // Remove the pasted strokes from the end
         strokesRef.current.splice(strokesRef.current.length - action.count, action.count)
         clearSelection()
+      } else if (action.type === 'extractSubBlock') {
+        // Re-insert extracted strokes at their original indices
+        for (const { stroke, index } of action.strokes) {
+          strokesRef.current.splice(Math.min(index, strokesRef.current.length), 0, stroke)
+        }
       }
       invalidateBuffer()
       redraw()
@@ -554,6 +576,30 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       notifyUndoState()
       notifyStrokeComplete()
     }, [invalidateBuffer, redraw, notifyUndoState, notifyStrokeComplete])
+
+    /** Extract selected strokes into a sub-block and remove them from the canvas */
+    const extractSelection = useCallback(() => {
+      if (selectedIndicesRef.current.length === 0) return
+      const bounds = selectionBoundsRef.current
+      if (!bounds) return
+      const sorted = [...selectedIndicesRef.current].sort((a, b) => a - b)
+      const extracted: PenStroke[] = sorted.map((idx) => cloneStroke(strokesRef.current[idx]))
+      const removed: { stroke: PenStroke; index: number }[] = sorted.map((idx) => ({
+        stroke: cloneStroke(strokesRef.current[idx]),
+        index: idx,
+      }))
+      // Remove strokes from canvas (from end to preserve indices)
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        strokesRef.current.splice(sorted[i], 1)
+      }
+      undoStackRef.current.push({ type: 'extractSubBlock', strokes: removed })
+      clearSelection()
+      invalidateBuffer()
+      redraw()
+      notifyUndoState()
+      notifyStrokeComplete()
+      onCreateSubBlock?.({ strokes: extracted, bounds })
+    }, [clearSelection, invalidateBuffer, redraw, notifyUndoState, notifyStrokeComplete, onCreateSubBlock])
 
     /** Draw the lasso path and selection visuals onto the main canvas */
     const drawLassoOverlay = useCallback(() => {
@@ -1009,11 +1055,14 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         } else if (e.key === 'v' && (e.ctrlKey || e.metaKey)) {
           pasteStrokes()
           e.preventDefault()
+        } else if (e.key === 'b' && (e.ctrlKey || e.metaKey) && selectedIndicesRef.current.length > 0 && onCreateSubBlock) {
+          extractSelection()
+          e.preventDefault()
         }
       }
       wrapper.addEventListener('keydown', onKeyDown)
       return () => wrapper.removeEventListener('keydown', onKeyDown)
-    }, [tool, clearSelection, invalidateBuffer, redraw, deleteSelection, copySelection, cutSelection, pasteStrokes])
+    }, [tool, clearSelection, invalidateBuffer, redraw, deleteSelection, copySelection, cutSelection, pasteStrokes, extractSelection, onCreateSubBlock])
 
     useImperativeHandle(ref, () => ({
       getStrokes() {
@@ -1045,6 +1094,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       hasSelection() {
         return selectedIndicesRef.current.length > 0
       },
+      extractSelection,
       toDataURL() {
         const canvas = canvasRef.current
         if (!canvas) return ''
@@ -1076,7 +1126,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
         }
         return offscreen.toDataURL('image/png')
       },
-    }), [redraw, undo, invalidateBuffer, notifyUndoState, notifyStrokeComplete, copySelection, cutSelection, pasteStrokes, deleteSelection])
+    }), [redraw, undo, invalidateBuffer, notifyUndoState, notifyStrokeComplete, copySelection, cutSelection, pasteStrokes, deleteSelection, extractSelection])
 
     return (
       <div
@@ -1146,6 +1196,16 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
             >
               Paste
             </button>
+            {onCreateSubBlock && (
+              <button
+                className="pen-canvas-context-item"
+                disabled={selectedIndicesRef.current.length === 0}
+                onClick={() => { extractSelection(); dismissContextMenu() }}
+                type="button"
+              >
+                Create Block
+              </button>
+            )}
           </div>
         )}
       </div>

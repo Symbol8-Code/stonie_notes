@@ -1,0 +1,50 @@
+-- ============================================================
+-- Supabase Initial Setup for STonIE Notes
+-- ============================================================
+-- Run this once in the Supabase SQL Editor after creating your project.
+-- After this, use `npx drizzle-kit push` to apply the full schema.
+--
+-- This script enables required extensions and sets up
+-- Row Level Security (RLS) policies for production use.
+-- ============================================================
+
+-- Enable required extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ============================================================
+-- RLS Policies (enable after schema is pushed via Drizzle)
+-- ============================================================
+-- Uncomment and customize these after running drizzle-kit push
+-- and setting up Supabase Auth.
+--
+-- ALTER TABLE cards ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE boards ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE canvases ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE strokes ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE ai_extractions ENABLE ROW LEVEL SECURITY;
+--
+-- Example policy: users can only access cards in their workspace
+-- CREATE POLICY "Users can view own workspace cards"
+--   ON cards FOR SELECT
+--   USING (
+--     workspace_id IN (
+--       SELECT workspace_id FROM workspace_members
+--       WHERE user_id = auth.uid()
+--     )
+--   );
+
+-- ============================================================
+-- Connection Pooling Notes
+-- ============================================================
+-- Supabase provides two connection strings:
+--
+-- 1. Direct connection (port 5432):
+--    postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres
+--    Use for: migrations (drizzle-kit push), one-off scripts
+--
+-- 2. Connection pooler - Transaction mode (port 6543):
+--    postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+--    Use for: application runtime (Vercel serverless functions)
+--
+-- Set SUPABASE_DB_URL (direct) for migrations
+-- Set DATABASE_URL (pooler) for the application runtime

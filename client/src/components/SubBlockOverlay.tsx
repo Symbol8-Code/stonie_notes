@@ -6,10 +6,9 @@ import { drawStroke } from '@/utils/strokeRenderer'
 import type { CanvasInterpretation, MeetingNotesResult } from '@/services/api'
 
 /**
- * Renders strokes on a canvas using the same coordinate system as PenCanvas.
- * Instead of normalizing strokes into the container (like StrokePreview),
- * this offsets by the sub-block's logical position so strokes appear
- * exactly where the user drew them.
+ * Renders strokes on a canvas relative to the sub-block's bounding box.
+ * Computes the actual stroke bounds from point data so that when the
+ * sub-block is dragged to a new position the strokes move with it.
  */
 function DirectStrokeCanvas({ strokes, subBlock, scale }: {
   strokes: PenStroke[]
@@ -32,16 +31,29 @@ function DirectStrokeCanvas({ strokes, subBlock, scale }: {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    // Compute actual stroke bounds (matching computeStrokeBounds padding=10)
+    let minX = Infinity, minY = Infinity
+    for (const stroke of strokes) {
+      for (const p of stroke.points) {
+        if (p.x < minX) minX = p.x
+        if (p.y < minY) minY = p.y
+      }
+    }
+    const strokeOriginX = minX - 10
+    const strokeOriginY = minY - 10
+
     ctx.save()
     ctx.scale(dpr, dpr)
-    // Transform: scale to screen coords, then offset by sub-block origin
+    // Scale to screen coords, then offset by stroke origin so strokes
+    // render relative to the overlay box (not absolute canvas position)
     ctx.scale(scale, scale)
-    ctx.translate(-subBlock.x, -subBlock.y)
+    ctx.translate(-strokeOriginX, -strokeOriginY)
     for (const stroke of strokes) {
       drawStroke(ctx, stroke)
     }
     ctx.restore()
-  }, [strokes, subBlock.x, subBlock.y, subBlock.width, subBlock.height, scale])
+  }, [strokes, subBlock.width, subBlock.height, scale])
 
   return (
     <canvas

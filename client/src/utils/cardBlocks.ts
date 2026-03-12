@@ -5,13 +5,72 @@
  * can hold both text and drawing content simultaneously.
  */
 
-import type { ContentBlock } from '@/types/models'
+import type { ContentBlock, PenStroke, SubBlock, SubBlockVariation } from '@/types/models'
 import { hasDrawing } from '@/types/models'
 
 let blockIdCounter = 0
 
 export function nextBlockId(): string {
   return `blk_${Date.now()}_${++blockIdCounter}`
+}
+
+let subBlockIdCounter = 0
+
+export function nextSubBlockId(): string {
+  return `sb_${Date.now()}_${++subBlockIdCounter}`
+}
+
+let variationIdCounter = 0
+
+export function nextVariationId(): string {
+  return `var_${Date.now()}_${++variationIdCounter}`
+}
+
+/**
+ * Compute axis-aligned bounding box for an array of strokes.
+ * Returns position and dimensions with padding.
+ */
+export function computeStrokeBounds(strokes: PenStroke[], padding = 10): { x: number; y: number; width: number; height: number } {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const stroke of strokes) {
+    for (const p of stroke.points) {
+      if (p.x < minX) minX = p.x
+      if (p.y < minY) minY = p.y
+      if (p.x > maxX) maxX = p.x
+      if (p.y > maxY) maxY = p.y
+    }
+  }
+  return {
+    x: minX - padding,
+    y: minY - padding,
+    width: Math.max(maxX - minX + padding * 2, 40),
+    height: Math.max(maxY - minY + padding * 2, 40),
+  }
+}
+
+/**
+ * Create a SubBlock from extracted lasso strokes.
+ * The strokes become the first (index 0) variation.
+ */
+export function createSubBlockFromStrokes(strokes: PenStroke[]): SubBlock {
+  const bounds = computeStrokeBounds(strokes)
+  // Store points relative to the sub-block origin so dragging
+  // only needs to update x/y without translating every point.
+  const variation: SubBlockVariation = {
+    id: nextVariationId(),
+    type: 'strokes',
+    strokes: strokes.map(s => ({
+      ...s,
+      points: s.points.map(p => ({ ...p, x: p.x - bounds.x, y: p.y - bounds.y })),
+    })),
+    createdAt: new Date().toISOString(),
+  }
+  return {
+    id: nextSubBlockId(),
+    ...bounds,
+    variations: [variation],
+    activeVariationIndex: 0,
+  }
 }
 
 /**

@@ -62,6 +62,8 @@ interface PenCanvasProps {
   onCreateSubBlock?: (data: CreateSubBlockData) => void
   /** Called when canvas transform (zoom/pan) changes */
   onTransformChange?: (scale: number, panX: number, panY: number) => void
+  /** Called when a single new stroke has been drawn (before onStrokeComplete). Return true to consume the stroke (remove it from the canvas). */
+  onStrokeDrawn?: (stroke: PenStroke) => boolean
 }
 
 /** An undoable action on the canvas */
@@ -154,6 +156,7 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
     onStrokeComplete,
     onCreateSubBlock,
     onTransformChange,
+    onStrokeDrawn,
   }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const wrapperRef = useRef<HTMLDivElement>(null)
@@ -938,15 +941,20 @@ export const PenCanvas = forwardRef<PenCanvasHandle, PenCanvasProps>(
       if (!drawingRef.current) return
       drawingRef.current = false
       if (currentStrokeRef.current && currentStrokeRef.current.points.length > 1) {
-        strokesRef.current.push(currentStrokeRef.current)
-        undoStackRef.current.push({ type: 'draw' })
-        invalidateBuffer()
-        notifyUndoState()
-        notifyStrokeComplete()
+        const stroke = currentStrokeRef.current
+        // Let parent intercept the stroke (e.g. to route it to a sub-block)
+        const consumed = onStrokeDrawn?.(stroke)
+        if (!consumed) {
+          strokesRef.current.push(stroke)
+          undoStackRef.current.push({ type: 'draw' })
+          invalidateBuffer()
+          notifyUndoState()
+          notifyStrokeComplete()
+        }
       }
       currentStrokeRef.current = null
       redraw()
-    }, [notifyUndoState, notifyStrokeComplete, invalidateBuffer, redraw, tool, finalizeLasso, cancelFirmPress])
+    }, [notifyUndoState, notifyStrokeComplete, invalidateBuffer, redraw, tool, finalizeLasso, cancelFirmPress, onStrokeDrawn])
 
     // Attach pointer events natively (React synthetic events coalesce pointer moves)
     useEffect(() => {

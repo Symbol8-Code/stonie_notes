@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import type { SubBlock, SubBlockVariation } from '@/types/models'
+import type { SubBlock, SubBlockVariation, StrokeTool } from '@/types/models'
 import { StrokePreview } from '@/components/StrokePreview'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import type { CanvasInterpretation, MeetingNotesResult } from '@/services/api'
@@ -21,6 +21,8 @@ interface SubBlockOverlayProps {
   onEdit: (id: string) => void
   onInterpret: (id: string, mode: 'readText' | 'interpret' | 'meetingNotes') => void
   onVariationSwitch: (id: string, index: number) => void
+  /** Current drawing tool — when 'pen', overlay allows drawing through */
+  activeTool?: StrokeTool
 }
 
 /** Module-level clipboard for sub-block copy/paste */
@@ -42,6 +44,7 @@ export function SubBlockOverlay({
   onEdit,
   onInterpret,
   onVariationSwitch,
+  activeTool,
 }: SubBlockOverlayProps) {
   const [interpreting, setInterpreting] = useState(false)
   const [transitioning, setTransitioning] = useState(false)
@@ -191,6 +194,9 @@ export function SubBlockOverlay({
     transitionPhase === 'exit' ? 'subblock-page-exit' :
     transitionPhase === 'enter' ? 'subblock-page-enter' : ''
 
+  // When pen tool is active, let strokes pass through to the canvas underneath
+  const penPassthrough = activeTool === 'pen'
+
   return (
     <div
       className={`subblock-overlay ${isSelected ? 'subblock-selected' : ''}`}
@@ -200,13 +206,14 @@ export function SubBlockOverlay({
         top: screenY,
         width: screenW,
         minHeight: screenH,
-        pointerEvents: 'auto',
+        pointerEvents: penPassthrough ? 'none' : 'auto',
       }}
       onClick={(e) => { e.stopPropagation(); onSelect() }}
     >
       {/* Drag handle */}
       <div
         className="subblock-drag-handle"
+        style={{ pointerEvents: 'auto' }}
         onPointerDown={handleDragStart}
         onPointerMove={handleDragMove}
         onPointerUp={handleDragEnd}
@@ -241,7 +248,7 @@ export function SubBlockOverlay({
 
       {/* Action toolbar — shown when selected */}
       {isSelected && isCanvasActive && (
-        <div className="subblock-toolbar" onClick={(e) => e.stopPropagation()}>
+        <div className="subblock-toolbar" style={{ pointerEvents: 'auto' }} onClick={(e) => e.stopPropagation()}>
           <button
             className="subblock-tool-btn"
             onClick={() => handleInterpret('readText')}

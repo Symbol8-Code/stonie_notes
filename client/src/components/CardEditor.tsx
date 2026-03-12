@@ -6,7 +6,7 @@ import { RichTextEditor } from '@/components/RichTextEditor'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { DrawingPalette } from '@/components/DrawingPalette'
 import { useInputModeContext } from '@/contexts/InputModeContext'
-import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId, createSubBlockFromStrokes, nextVariationId } from '@/utils/cardBlocks'
+import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId, createSubBlockFromStrokes, nextVariationId, computeStrokeBounds } from '@/utils/cardBlocks'
 import { hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
 import { interpretCanvas, getExtractions, getMeetingNotes, listBoards, getBoardsForCard, setBoardsForCard, writeMeetingNotes } from '@/services/api'
@@ -785,6 +785,38 @@ function SectionBlock({
     if (selectedSubBlockId === id) setSelectedSubBlockId(null)
   }, [subBlocks, updateSubBlocks, selectedSubBlockId, block.id, penCanvasRefs])
 
+  /** Intercept a newly drawn stroke: if it falls within a sub-block, route it there instead of the main canvas. */
+  const handleStrokeDrawn = useCallback((stroke: PenStroke): boolean => {
+    if (subBlocks.length === 0) return false
+    // Compute stroke centroid
+    let cx = 0, cy = 0
+    for (const p of stroke.points) { cx += p.x; cy += p.y }
+    cx /= stroke.points.length
+    cy /= stroke.points.length
+    // Find the sub-block whose bounds contain the centroid
+    const target = subBlocks.find(sb =>
+      cx >= sb.x && cx <= sb.x + sb.width &&
+      cy >= sb.y && cy <= sb.y + sb.height
+    )
+    if (!target) return false
+    // Add stroke to the sub-block's strokes variation and recalculate bounds
+    const updated = subBlocks.map(s => {
+      if (s.id !== target.id) return s
+      const currentStrokes = s.variations[0]?.strokes ?? []
+      const newStrokes = [...currentStrokes, { ...stroke, points: stroke.points.map(p => ({ ...p })) }]
+      const bounds = computeStrokeBounds(newStrokes)
+      return {
+        ...s,
+        ...bounds,
+        variations: s.variations.map((v, i) =>
+          i === 0 ? { ...v, strokes: newStrokes } : v
+        ),
+      }
+    })
+    updateSubBlocks(updated)
+    return true // consumed — don't add to main canvas
+  }, [subBlocks, updateSubBlocks])
+
   const handleSubBlockInterpret = useCallback(async (id: string, mode: 'readText' | 'interpret' | 'meetingNotes') => {
     const sb = subBlocks.find(s => s.id === id)
     if (!sb) return
@@ -1067,6 +1099,7 @@ function SectionBlock({
               onStrokeComplete={onStrokeComplete}
               onCreateSubBlock={handleCreateSubBlock}
               onTransformChange={handleCanvasTransformChange}
+              onStrokeDrawn={handleStrokeDrawn}
             />
             {/* Sub-block overlays */}
             {subBlocks.length > 0 && (
@@ -1090,6 +1123,7 @@ function SectionBlock({
                     onEdit={handleSubBlockEdit}
                     onInterpret={handleSubBlockInterpret}
                     onVariationSwitch={handleSubBlockVariationSwitch}
+                    activeTool={drawingTool.tool}
                   />
                 ))}
               </div>

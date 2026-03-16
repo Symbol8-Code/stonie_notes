@@ -92,6 +92,44 @@ export interface Tag {
 /** Semantic section type. Extensible — add more types here as needed. */
 export type SectionType = 'heading' | 'body'
 
+/** The kind of content a sub-block variation holds */
+export type VariationType = 'strokes' | 'readText' | 'interpret' | 'meetingNotes'
+
+/**
+ * One rendered form of a sub-block: the original pen strokes, or an
+ * AI-produced interpretation.  Only the field matching `type` is populated.
+ */
+export interface SubBlockVariation {
+  id: string
+  type: VariationType
+  /** Original pen strokes (type === 'strokes') */
+  strokes?: PenStroke[]
+  /** Extracted handwritten text as Markdown (type === 'readText') */
+  markdown?: string
+  /** Visual interpretation — items & relationships (type === 'interpret') */
+  interpretation?: unknown
+  /** Structured meeting notes (type === 'meetingNotes') */
+  meetingNotes?: unknown
+  createdAt: string
+}
+
+/**
+ * A grouped set of strokes extracted from the canvas via lasso selection.
+ * Lives inside a ContentBlock at a specific canvas position and supports
+ * multiple variations (original pen, interpreted text, visual, etc.).
+ */
+export interface SubBlock {
+  id: string
+  /** Position in logical (un-zoomed) canvas coordinates */
+  x: number
+  y: number
+  width: number
+  height: number
+  /** Index 0 is always the original strokes variation */
+  variations: SubBlockVariation[]
+  activeVariationIndex: number
+}
+
 /**
  * A content section within a card.
  * Each section has a semantic type and can hold BOTH text and drawing content.
@@ -103,6 +141,8 @@ export interface ContentBlock {
   textContent: string
   /** Stroke data from pen input. Empty array if no drawing. */
   drawingContent: PenStroke[]
+  /** Sub-blocks extracted from this canvas section */
+  subBlocks?: SubBlock[]
 }
 
 /** Returns true if the block has any drawing content */

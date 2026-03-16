@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import type { SubBlock, SubBlockVariation, StrokeTool, PenStroke } from '@/types/models'
-import { StrokePreview } from '@/components/StrokePreview'
+
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { drawStroke } from '@/utils/strokeRenderer'
 import type { CanvasInterpretation, MeetingNotesResult } from '@/services/api'
@@ -56,15 +56,10 @@ interface SubBlockOverlayProps {
   scale: number
   panX: number
   panY: number
-  /** Whether the canvas is active (pen mode) */
-  isCanvasActive: boolean
   /** Whether this sub-block is selected */
   isSelected: boolean
-  online: boolean
   onSelect: () => void
   onDragMove: (id: string, x: number, y: number) => void
-  onDelete: (id: string) => void
-  onInterpret: (id: string, mode: 'readText' | 'interpret' | 'meetingNotes') => void
   onVariationSwitch: (id: string, index: number) => void
   /** Current drawing tool — when 'pen', overlay allows drawing through */
   activeTool?: StrokeTool
@@ -80,17 +75,12 @@ export function SubBlockOverlay({
   scale,
   panX,
   panY,
-  isCanvasActive,
   isSelected,
-  online,
   onSelect,
   onDragMove,
-  onDelete,
-  onInterpret,
   onVariationSwitch,
   activeTool,
 }: SubBlockOverlayProps) {
-  const [interpreting, setInterpreting] = useState(false)
   const [transitioning, setTransitioning] = useState(false)
   const [displayedIndex, setDisplayedIndex] = useState(subBlock.activeVariationIndex)
   const [transitionPhase, setTransitionPhase] = useState<'none' | 'exit' | 'enter'>('none')
@@ -162,16 +152,6 @@ export function SubBlockOverlay({
     }, 250)
   }, [transitioning, displayedIndex, subBlock.id, onVariationSwitch])
 
-  // ── Interpret actions ──
-  const handleInterpret = useCallback(async (mode: 'readText' | 'interpret' | 'meetingNotes') => {
-    setInterpreting(true)
-    try {
-      await onInterpret(subBlock.id, mode)
-    } finally {
-      setInterpreting(false)
-    }
-  }, [subBlock.id, onInterpret])
-
   // ── Render variation content ──
   const renderVariationContent = (variation: SubBlockVariation) => {
     switch (variation.type) {
@@ -242,8 +222,8 @@ export function SubBlockOverlay({
     transitionPhase === 'exit' ? 'subblock-page-exit' :
     transitionPhase === 'enter' ? 'subblock-page-enter' : ''
 
-  // When pen tool is active, let strokes pass through to the canvas underneath
-  const penPassthrough = activeTool === 'pen'
+  // When pen or eraser tool is active, let events pass through to the canvas underneath
+  const penPassthrough = activeTool === 'pen' || activeTool === 'eraser'
 
   return (
     <div
@@ -294,46 +274,6 @@ export function SubBlockOverlay({
         </div>
       )}
 
-      {/* Action toolbar — shown when selected */}
-      {isSelected && isCanvasActive && (
-        <div className="subblock-toolbar" style={{ pointerEvents: 'auto' }} onClick={(e) => e.stopPropagation()}>
-          <button
-            className="subblock-tool-btn"
-            onClick={() => handleInterpret('readText')}
-            disabled={interpreting || !online}
-            title="Extract text from drawing"
-            type="button"
-          >
-            {interpreting ? '...' : 'Read'}
-          </button>
-          <button
-            className="subblock-tool-btn"
-            onClick={() => handleInterpret('interpret')}
-            disabled={interpreting || !online}
-            title="Interpret drawing (mindmap, diagram, etc.)"
-            type="button"
-          >
-            {interpreting ? '...' : 'Interpret'}
-          </button>
-          <button
-            className="subblock-tool-btn"
-            onClick={() => handleInterpret('meetingNotes')}
-            disabled={interpreting || !online}
-            title="Extract meeting notes"
-            type="button"
-          >
-            {interpreting ? '...' : 'Notes'}
-          </button>
-          <button
-            className="subblock-tool-btn subblock-tool-delete"
-            onClick={() => onDelete(subBlock.id)}
-            title="Delete block (re-insert strokes)"
-            type="button"
-          >
-            &times;
-          </button>
-        </div>
-      )}
     </div>
   )
 }

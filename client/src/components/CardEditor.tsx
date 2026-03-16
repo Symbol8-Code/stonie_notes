@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { PenCanvas } from '@/components/PenCanvas'
 import { StrokePreview } from '@/components/StrokePreview'
@@ -6,14 +6,14 @@ import { RichTextEditor } from '@/components/RichTextEditor'
 import { MarkdownPreview } from '@/components/MarkdownPreview'
 import { DrawingPalette } from '@/components/DrawingPalette'
 import { useInputModeContext } from '@/contexts/InputModeContext'
-import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId, createSubBlockFromStrokes, nextVariationId, computeStrokeBounds } from '@/utils/cardBlocks'
+import { parseBlocks, serializeBlocks, defaultBlocks, nextBlockId, createSubBlockFromStrokes, nextVariationId, computeStrokeBounds, nextSubBlockId } from '@/utils/cardBlocks'
 import { hasDrawing } from '@/types/models'
 import type { PenCanvasHandle } from '@/components/PenCanvas'
 import { interpretCanvas, getExtractions, getMeetingNotes, listBoards, getBoardsForCard, setBoardsForCard, writeMeetingNotes } from '@/services/api'
 import { useOnlineContext } from '@/contexts/OnlineContext'
 import type { CanvasInterpretation, MeetingNotesResult } from '@/services/api'
 import type { Card, Board, ContentBlock, SectionType, StrokeTool, LineStyle, PenStroke, SubBlock, SubBlockVariation } from '@/types/models'
-import { SubBlockOverlay } from '@/components/SubBlockOverlay'
+import { SubBlockOverlay, getSubBlockClipboard, setSubBlockClipboard } from '@/components/SubBlockOverlay'
 import type { CreateSubBlockData } from '@/components/PenCanvas'
 
 type EditorMode = 'keyboard' | 'pen'
@@ -90,16 +90,19 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
 
   const penCanvasRefs = useRef<Map<string, PenCanvasHandle>>(new Map())
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const blocksRef = useRef(blocks)
+  blocksRef.current = blocks
 
   // ── localStorage draft save/restore for pen drawings ──
   const draftKey = `stonie-pen-draft-${card?.id ?? 'new'}`
+  const draftKeyRef = useRef(draftKey)
+  draftKeyRef.current = draftKey
 
   /** Save current block drawing data to localStorage */
   const saveDraftToLocalStorage = useCallback(() => {
     try {
-      // Gather strokes from all active canvases + stored block data
       const drawingData: Record<string, PenStroke[]> = {}
-      for (const block of blocks) {
+      for (const block of blocksRef.current) {
         const handle = penCanvasRefs.current.get(block.id)
         const strokes = handle?.hasContent() ? handle.getStrokes() : block.drawingContent
         if (strokes && strokes.length > 0) {
@@ -107,14 +110,14 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
         }
       }
       if (Object.keys(drawingData).length > 0) {
-        localStorage.setItem(draftKey, JSON.stringify(drawingData))
+        localStorage.setItem(draftKeyRef.current, JSON.stringify(drawingData))
       } else {
-        localStorage.removeItem(draftKey)
+        localStorage.removeItem(draftKeyRef.current)
       }
     } catch {
       // localStorage may be full or unavailable — silently ignore
     }
-  }, [blocks, draftKey])
+  }, [])
 
   const clearDraftFromLocalStorage = useCallback(() => {
     try { localStorage.removeItem(draftKey) } catch { /* ignore */ }
@@ -143,10 +146,34 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** Called by PenCanvas after each stroke change — triggers localStorage save */
+  /** Called by PenCanvas after each stroke change — debounced localStorage save.
+   *  Saves after 2s of inactivity so drawing isn't blocked by JSON serialization. */
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleStrokeComplete = useCallback(() => {
-    saveDraftToLocalStorage()
+    if (draftSaveTimerRef.current !== null) {
+      clearTimeout(draftSaveTimerRef.current)
+    }
+    draftSaveTimerRef.current = setTimeout(() => {
+      draftSaveTimerRef.current = null
+      // Use requestIdleCallback to avoid blocking main thread during drawing
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(() => saveDraftToLocalStorage())
+      } else {
+        saveDraftToLocalStorage()
+      }
+    }, 2000)
   }, [saveDraftToLocalStorage])
+
+  // Flush pending draft save on unmount
+  useEffect(() => {
+    return () => {
+      if (draftSaveTimerRef.current !== null) {
+        clearTimeout(draftSaveTimerRef.current)
+        saveDraftToLocalStorage()
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Load all boards and current card's board associations
   useEffect(() => {
@@ -668,6 +695,83 @@ export function CardEditor({ onSave, onCancel, onAutoSave, card }: CardEditorPro
   )
 }
 
+/* ── CanvasContextMenu (isolated re-renders) ──── */
+
+type ContextMenuState =
+  | { type: 'lasso'; x: number; y: number }
+  | { type: 'subblock'; x: number; y: number; subBlockId: string }
+  | null
+
+interface CanvasContextMenuProps {
+  menuRef: React.RefObject<ContextMenuState>
+  version: number
+  interpretingSubBlockId: string | null
+  penCanvasRefs: React.RefObject<Map<string, PenCanvasHandle>>
+  blockId: string
+  onSetContextMenu: (val: ContextMenuState) => void
+  onSubBlockInterpret: (id: string, mode: 'readText' | 'interpret' | 'meetingNotes') => void
+  onSubBlockCopy: () => void
+  onSubBlockCut: () => void
+  onSubBlockPaste: () => void
+  onSubBlockDelete: (id: string) => void
+}
+
+const CanvasContextMenu = memo(function CanvasContextMenu({
+  menuRef,
+  version,
+  interpretingSubBlockId,
+  penCanvasRefs,
+  blockId,
+  onSetContextMenu,
+  onSubBlockInterpret,
+  onSubBlockCopy,
+  onSubBlockCut,
+  onSubBlockPaste,
+  onSubBlockDelete,
+}: CanvasContextMenuProps) {
+  void version // used to trigger re-renders
+  const cm = menuRef.current
+  if (!cm) return null
+  return (
+    <div
+      className="pen-canvas-context-menu"
+      style={{
+        position: 'absolute',
+        left: cm.x,
+        top: cm.y,
+        zIndex: 100,
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {cm.type === 'lasso' && (() => {
+        const handle = penCanvasRefs.current.get(blockId)
+        return (
+          <>
+            <button type="button" className="pen-canvas-context-item" onClick={() => handle?.copySelection()}>Copy</button>
+            <button type="button" className="pen-canvas-context-item" onClick={() => { handle?.cutSelection(); onSetContextMenu(null) }}>Cut</button>
+            <button type="button" className="pen-canvas-context-item" onClick={() => handle?.pasteStrokes()} disabled={!handle?.canPaste()}>Paste</button>
+            <button type="button" className="pen-canvas-context-item" onClick={() => { handle?.deleteSelection(); onSetContextMenu(null) }}>Delete</button>
+            <button type="button" className="pen-canvas-context-item" onClick={() => { handle?.extractSelection(); onSetContextMenu(null) }}>Create Block</button>
+          </>
+        )
+      })()}
+      {cm.type === 'subblock' && (
+        <>
+          <button type="button" className="pen-canvas-context-item" onClick={() => onSubBlockInterpret(cm.subBlockId, 'readText')} disabled={interpretingSubBlockId === cm.subBlockId}>Read</button>
+          <button type="button" className="pen-canvas-context-item" onClick={() => onSubBlockInterpret(cm.subBlockId, 'interpret')} disabled={interpretingSubBlockId === cm.subBlockId}>Interpret</button>
+          <button type="button" className="pen-canvas-context-item" onClick={() => onSubBlockInterpret(cm.subBlockId, 'meetingNotes')} disabled={interpretingSubBlockId === cm.subBlockId}>Notes</button>
+          <span className="pen-canvas-context-divider" />
+          <button type="button" className="pen-canvas-context-item" onClick={() => onSubBlockCopy()}>Copy</button>
+          <button type="button" className="pen-canvas-context-item" onClick={() => onSubBlockCut()}>Cut</button>
+          <button type="button" className="pen-canvas-context-item" onClick={() => onSubBlockPaste()}>Paste</button>
+          <span className="pen-canvas-context-divider" />
+          <button type="button" className="pen-canvas-context-item pen-canvas-context-danger" onClick={() => onSubBlockDelete(cm.subBlockId)}>Delete</button>
+        </>
+      )}
+    </div>
+  )
+})
+
 /* ── SectionBlock ─────────────────────────────── */
 
 interface SectionBlockProps {
@@ -732,8 +836,36 @@ function SectionBlock({
 
   // ── Sub-block state ──
   const [subBlocks, setSubBlocks] = useState<SubBlock[]>(block.subBlocks ?? [])
+  const subBlocksRef = useRef(subBlocks)
+  subBlocksRef.current = subBlocks
   const [selectedSubBlockId, setSelectedSubBlockId] = useState<string | null>(null)
-  const [canvasTransform, setCanvasTransform] = useState({ scale: 1, panX: 0, panY: 0 })
+  const selectedSubBlockIdRef = useRef(selectedSubBlockId)
+  selectedSubBlockIdRef.current = selectedSubBlockId
+  const canvasTransformRef = useRef({ scale: 1, panX: 0, panY: 0 })
+  const overlayContainerRef = useRef<HTMLDivElement>(null)
+  const [canvasTransformVersion, setCanvasTransformVersion] = useState(0)
+  const transformRafRef = useRef<number | null>(null)
+  const [interpretingSubBlockId, setInterpretingSubBlockId] = useState<string | null>(null)
+
+  // ── Unified context menu (lasso selection or sub-block) ──
+  // Stored in a ref to avoid re-rendering PenCanvas on menu changes.
+  // A version counter triggers re-render of only the CanvasContextMenu component.
+  const contextMenuRef = useRef<ContextMenuState>(null)
+  const [contextMenuVersion, setContextMenuVersion] = useState(0)
+  const setContextMenu = useCallback((val: ContextMenuState | ((prev: ContextMenuState) => ContextMenuState)) => {
+    if (typeof val === 'function') {
+      contextMenuRef.current = val(contextMenuRef.current)
+    } else {
+      contextMenuRef.current = val
+    }
+    setContextMenuVersion(v => v + 1)
+  }, [])
+
+  // Sub-block undo stack for draw-into and erase-from operations
+  type SubBlockUndoAction =
+    | { type: 'addStroke'; subBlockId: string; strokeIndex: number }
+    | { type: 'eraseStroke'; subBlockId: string; stroke: PenStroke; strokeIndex: number }
+  const subBlockUndoRef = useRef<SubBlockUndoAction[]>([])
 
   // Propagate sub-block changes to parent
   const updateSubBlocks = useCallback((newSubBlocks: SubBlock[]) => {
@@ -741,24 +873,84 @@ function SectionBlock({
     onSubBlocksChange?.(block.id, newSubBlocks)
   }, [block.id, onSubBlocksChange])
 
+  /** PenCanvas lasso selection context menu callback */
+  const handleSelectionContextMenu = useCallback((pos: { x: number; y: number } | null) => {
+    if (pos) {
+      setSelectedSubBlockId(null)
+      setContextMenu({ type: 'lasso', ...pos })
+    } else {
+      setContextMenu(prev => prev?.type === 'lasso' ? null : prev)
+    }
+  }, [])
+
+  /** Show context menu for a selected sub-block at its right edge */
+  const showSubBlockContextMenu = useCallback((sbId: string) => {
+    const sb = subBlocksRef.current.find(s => s.id === sbId)
+    if (!sb) return
+    const { scale, panX, panY } = canvasTransformRef.current
+    const menuX = (sb.x + sb.width) * scale + panX + 8
+    const menuY = sb.y * scale + panY
+    setContextMenu({ type: 'subblock', x: menuX, y: menuY, subBlockId: sbId })
+  }, [setContextMenu])
+
+  /** Select a sub-block and show its context menu */
+  const handleSubBlockSelect = useCallback((sbId: string) => {
+    setSelectedSubBlockId(sbId)
+    showSubBlockContextMenu(sbId)
+  }, [showSubBlockContextMenu])
+
+  /** Sub-block copy */
+  const handleSubBlockCopy = useCallback(() => {
+    const selId = selectedSubBlockIdRef.current
+    if (!selId) return
+    const sb = subBlocksRef.current.find(s => s.id === selId)
+    if (sb) setSubBlockClipboard(structuredClone(sb))
+  }, [])
+
+  // handleSubBlockCut is defined after handleSubBlockDelete below
+
+  /** Sub-block paste */
+  const handleSubBlockPaste = useCallback(() => {
+    const clip = getSubBlockClipboard()
+    if (!clip) return
+    const cloned = structuredClone(clip)
+    cloned.id = nextSubBlockId()
+    cloned.x += 20
+    cloned.y += 20
+    updateSubBlocks([...subBlocksRef.current, cloned])
+    setSelectedSubBlockId(cloned.id)
+    const { scale, panX, panY } = canvasTransformRef.current
+    const menuX = (cloned.x + cloned.width) * scale + panX + 8
+    const menuY = cloned.y * scale + panY
+    setContextMenu({ type: 'subblock', x: menuX, y: menuY, subBlockId: cloned.id })
+  }, [updateSubBlocks, setContextMenu])
+
   const handleCreateSubBlock = useCallback((data: CreateSubBlockData) => {
     const sb = createSubBlockFromStrokes(data.strokes)
-    updateSubBlocks([...subBlocks, sb])
+    updateSubBlocks([...subBlocksRef.current, sb])
     setSelectedSubBlockId(sb.id)
     // Switch back to pen so user can draw into the new sub-block immediately
     onToolChange('pen')
-  }, [subBlocks, updateSubBlocks, onToolChange])
+  }, [updateSubBlocks, onToolChange])
+
+  /** Remove the most recently created sub-block (called when PenCanvas undoes an extractSubBlock action) */
+  const handleUndoExtractSubBlock = useCallback(() => {
+    const sbs = subBlocksRef.current
+    if (sbs.length === 0) return
+    const removed = sbs[sbs.length - 1]
+    updateSubBlocks(sbs.slice(0, -1))
+    if (selectedSubBlockIdRef.current === removed.id) setSelectedSubBlockId(null)
+  }, [updateSubBlocks])
 
   const handleSubBlockDragMove = useCallback((id: string, x: number, y: number) => {
-    // Points are relative to sub-block origin, so just update position
-    updateSubBlocks(subBlocks.map(sb =>
+    updateSubBlocks(subBlocksRef.current.map(sb =>
       sb.id === id ? { ...sb, x, y } : sb
     ))
-  }, [subBlocks, updateSubBlocks])
+  }, [updateSubBlocks])
 
   const handleSubBlockDelete = useCallback((id: string) => {
-    // Re-insert original strokes back into the canvas (convert relative → absolute)
-    const sb = subBlocks.find(s => s.id === id)
+    const sbs = subBlocksRef.current
+    const sb = sbs.find(s => s.id === id)
     if (sb) {
       const relativeStrokes = sb.variations[0]?.strokes ?? []
       if (relativeStrokes.length > 0) {
@@ -772,34 +964,43 @@ function SectionBlock({
         }
       }
     }
-    updateSubBlocks(subBlocks.filter(s => s.id !== id))
-    if (selectedSubBlockId === id) setSelectedSubBlockId(null)
-  }, [subBlocks, updateSubBlocks, selectedSubBlockId, block.id, penCanvasRefs])
+    updateSubBlocks(sbs.filter(s => s.id !== id))
+    if (selectedSubBlockIdRef.current === id) {
+      setSelectedSubBlockId(null)
+      setContextMenu(null)
+    }
+  }, [updateSubBlocks, setContextMenu, block.id, penCanvasRefs])
+
+  /** Sub-block cut (copy + delete) */
+  const handleSubBlockCut = useCallback(() => {
+    const selId = selectedSubBlockIdRef.current
+    if (!selId) return
+    handleSubBlockCopy()
+    handleSubBlockDelete(selId)
+  }, [handleSubBlockCopy, handleSubBlockDelete])
 
   /** Intercept a newly drawn stroke: if it falls within a sub-block, route it there instead of the main canvas. */
   const handleStrokeDrawn = useCallback((stroke: PenStroke): boolean => {
-    if (subBlocks.length === 0) return false
-    // Compute stroke centroid
+    const sbs = subBlocksRef.current
+    if (sbs.length === 0) return false
     let cx = 0, cy = 0
     for (const p of stroke.points) { cx += p.x; cy += p.y }
     cx /= stroke.points.length
     cy /= stroke.points.length
-    // Find the sub-block whose bounds contain the centroid
-    const target = subBlocks.find(sb =>
+    const target = sbs.find(sb =>
       cx >= sb.x && cx <= sb.x + sb.width &&
       cy >= sb.y && cy <= sb.y + sb.height
     )
     if (!target) return false
-    // Convert stroke points to sub-block-relative coordinates and recalculate bounds
-    const updated = subBlocks.map(s => {
+    const currentStrokes = target.variations[0]?.strokes ?? []
+    const newStrokeIndex = currentStrokes.length
+    const updated = sbs.map(s => {
       if (s.id !== target.id) return s
       const relativeStroke = {
         ...stroke,
         points: stroke.points.map(p => ({ ...p, x: p.x - s.x, y: p.y - s.y })),
       }
-      const currentStrokes = s.variations[0]?.strokes ?? []
       const newStrokes = [...currentStrokes, relativeStroke]
-      // Compute new bounds from relative points, then convert back to absolute
       const relBounds = computeStrokeBounds(newStrokes)
       return {
         ...s,
@@ -810,13 +1011,123 @@ function SectionBlock({
         ),
       }
     })
+    subBlocksRef.current = updated  // Keep ref in sync for immediate reads
     updateSubBlocks(updated)
-    return true // consumed — don't add to main canvas
-  }, [subBlocks, updateSubBlocks])
+    subBlockUndoRef.current.push({ type: 'addStroke', subBlockId: target.id, strokeIndex: newStrokeIndex })
+    onUndoStateChange(true)
+    return true
+  }, [updateSubBlocks, onUndoStateChange])
+
+  /** Point-to-line-segment distance for eraser hit-testing */
+  const distToSegment = useCallback((px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
+    const dx = x2 - x1
+    const dy = y2 - y1
+    const lenSq = dx * dx + dy * dy
+    if (lenSq === 0) return Math.hypot(px - x1, py - y1)
+    let t = ((px - x1) * dx + (py - y1) * dy) / lenSq
+    t = Math.max(0, Math.min(1, t))
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+  }, [])
+
+  /** Erase sub-block strokes at the given logical canvas point */
+  const handleEraseAtPoint = useCallback((x: number, y: number) => {
+    const sbs = subBlocksRef.current
+    if (sbs.length === 0) return
+    const eraserRadius = 12 / canvasTransformRef.current.scale
+    let changed = false
+    const updated = sbs.map(sb => {
+      const strokes = sb.variations[0]?.strokes
+      if (!strokes || strokes.length === 0) return sb
+      const relX = x - sb.x
+      const relY = y - sb.y
+      if (relX < -eraserRadius || relX > sb.width + eraserRadius ||
+          relY < -eraserRadius || relY > sb.height + eraserRadius) return sb
+      const remaining: PenStroke[] = []
+      strokes.forEach((stroke, idx) => {
+        let hit = false
+        for (let i = 1; i < stroke.points.length; i++) {
+          const p0 = stroke.points[i - 1]
+          const p1 = stroke.points[i]
+          const dist = distToSegment(relX, relY, p0.x, p0.y, p1.x, p1.y)
+          if (dist < eraserRadius + stroke.width * 0.75) {
+            hit = true
+            break
+          }
+        }
+        if (hit) {
+          subBlockUndoRef.current.push({ type: 'eraseStroke', subBlockId: sb.id, stroke, strokeIndex: idx })
+          changed = true
+        } else {
+          remaining.push(stroke)
+        }
+      })
+      if (remaining.length === strokes.length) return sb
+      const relBounds = computeStrokeBounds(remaining)
+      return {
+        ...sb,
+        width: remaining.length > 0 ? relBounds.width : sb.width,
+        height: remaining.length > 0 ? relBounds.height : sb.height,
+        variations: sb.variations.map((v, i) =>
+          i === 0 ? { ...v, strokes: remaining } : v
+        ),
+      }
+    })
+    if (changed) {
+      subBlocksRef.current = updated  // Keep ref in sync for subsequent calls in same flush batch
+      updateSubBlocks(updated)
+      onUndoStateChange(true)
+    }
+  }, [distToSegment, updateSubBlocks, onUndoStateChange])
+
+  /** Undo the last sub-block operation (stroke add or erase) */
+  const handleSubBlockUndo = useCallback((): boolean => {
+    const action = subBlockUndoRef.current.pop()
+    if (!action) return false
+    const sbs = subBlocksRef.current
+    if (action.type === 'addStroke') {
+      const updated = sbs.map(sb => {
+        if (sb.id !== action.subBlockId) return sb
+        const strokes = sb.variations[0]?.strokes
+        if (!strokes || strokes.length === 0) return sb
+        const newStrokes = strokes.slice(0, -1)
+        const relBounds = computeStrokeBounds(newStrokes)
+        return {
+          ...sb,
+          width: newStrokes.length > 0 ? relBounds.width : sb.width,
+          height: newStrokes.length > 0 ? relBounds.height : sb.height,
+          variations: sb.variations.map((v, i) =>
+            i === 0 ? { ...v, strokes: newStrokes } : v
+          ),
+        }
+      })
+      subBlocksRef.current = updated
+      updateSubBlocks(updated)
+    } else if (action.type === 'eraseStroke') {
+      const updated = sbs.map(sb => {
+        if (sb.id !== action.subBlockId) return sb
+        const strokes = [...(sb.variations[0]?.strokes ?? [])]
+        strokes.splice(Math.min(action.strokeIndex, strokes.length), 0, action.stroke)
+        const relBounds = computeStrokeBounds(strokes)
+        return {
+          ...sb,
+          width: relBounds.width,
+          height: relBounds.height,
+          variations: sb.variations.map((v, i) =>
+            i === 0 ? { ...v, strokes } : v
+          ),
+        }
+      })
+      subBlocksRef.current = updated
+      updateSubBlocks(updated)
+    }
+    onUndoStateChange(subBlockUndoRef.current.length > 0 || (penCanvasRefs.current.get(block.id)?.canUndo() ?? false))
+    return true
+  }, [updateSubBlocks, onUndoStateChange, block.id, penCanvasRefs])
 
   const handleSubBlockInterpret = useCallback(async (id: string, mode: 'readText' | 'interpret' | 'meetingNotes') => {
     const sb = subBlocks.find(s => s.id === id)
     if (!sb) return
+    setInterpretingSubBlockId(id)
 
     // Get the original strokes to render to an offscreen canvas
     const strokes = sb.variations[0]?.strokes ?? []
@@ -895,6 +1206,8 @@ function SectionBlock({
       updateSubBlocks(updated)
     } catch (err) {
       console.error('Sub-block interpretation failed:', err)
+    } finally {
+      setInterpretingSubBlockId(null)
     }
   }, [subBlocks, updateSubBlocks, cardId, block.id])
 
@@ -905,8 +1218,26 @@ function SectionBlock({
   }, [subBlocks, updateSubBlocks])
 
   const handleCanvasTransformChange = useCallback((scale: number, panX: number, panY: number) => {
-    setCanvasTransform({ scale, panX, panY })
+    canvasTransformRef.current = { scale, panX, panY }
+    // Schedule a single React re-render per animation frame for overlays
+    if (transformRafRef.current === null) {
+      transformRafRef.current = requestAnimationFrame(() => {
+        transformRafRef.current = null
+        setCanvasTransformVersion(v => v + 1)
+      })
+    }
   }, [])
+
+  /** Undo: try PenCanvas first, then sub-block undo stack */
+  const handleLocalUndo = useCallback(() => {
+    const handle = penCanvasRefs.current.get(block.id)
+    if (handle?.canUndo()) {
+      handle.undo()
+      return
+    }
+    handleSubBlockUndo()
+  }, [block.id, penCanvasRefs, handleSubBlockUndo])
+
   const [interpretationFromDb, setInterpretationFromDb] = useState(!!initialInterpretation)
   const [interpretError, setInterpretError] = useState<string | null>(null)
   const [drawingModifiedSinceInterpret, setDrawingModifiedSinceInterpret] = useState(false)
@@ -1095,35 +1426,51 @@ function SectionBlock({
               onUndoStateChange={onUndoStateChange}
               onStrokeComplete={onStrokeComplete}
               onCreateSubBlock={handleCreateSubBlock}
+              onUndoExtractSubBlock={handleUndoExtractSubBlock}
               onTransformChange={handleCanvasTransformChange}
               onStrokeDrawn={handleStrokeDrawn}
+              onEraseAtPoint={handleEraseAtPoint}
+              onUndoFallback={handleSubBlockUndo}
+              onSelectionContextMenu={handleSelectionContextMenu}
             />
             {/* Sub-block overlays */}
             {subBlocks.length > 0 && (
               <div
+                ref={overlayContainerRef}
                 className="subblock-overlay-container"
+                data-transform-version={canvasTransformVersion}
                 style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}
               >
                 {subBlocks.map(sb => (
                   <SubBlockOverlay
                     key={sb.id}
                     subBlock={sb}
-                    scale={canvasTransform.scale}
-                    panX={canvasTransform.panX}
-                    panY={canvasTransform.panY}
-                    isCanvasActive={showCanvas}
+                    scale={canvasTransformRef.current.scale}
+                    panX={canvasTransformRef.current.panX}
+                    panY={canvasTransformRef.current.panY}
                     isSelected={selectedSubBlockId === sb.id}
-                    online={online}
-                    onSelect={() => setSelectedSubBlockId(sb.id)}
+                    onSelect={() => handleSubBlockSelect(sb.id)}
                     onDragMove={handleSubBlockDragMove}
-                    onDelete={handleSubBlockDelete}
-                    onInterpret={handleSubBlockInterpret}
                     onVariationSwitch={handleSubBlockVariationSwitch}
                     activeTool={drawingTool.tool}
                   />
                 ))}
               </div>
             )}
+            {/* Unified context menu */}
+            <CanvasContextMenu
+              menuRef={contextMenuRef}
+              version={contextMenuVersion}
+              interpretingSubBlockId={interpretingSubBlockId}
+              penCanvasRefs={penCanvasRefs}
+              blockId={block.id}
+              onSetContextMenu={setContextMenu}
+              onSubBlockInterpret={handleSubBlockInterpret}
+              onSubBlockCopy={handleSubBlockCopy}
+              onSubBlockCut={handleSubBlockCut}
+              onSubBlockPaste={handleSubBlockPaste}
+              onSubBlockDelete={handleSubBlockDelete}
+            />
             <div className="pen-canvas-quick-tools">
               <button
                 className={`pen-canvas-quick-btn ${drawingTool.tool === 'pen' ? 'active' : ''}`}
@@ -1151,7 +1498,7 @@ function SectionBlock({
               </button>
               <button
                 className="pen-canvas-quick-btn"
-                onClick={(e) => { e.stopPropagation(); onUndo() }}
+                onClick={(e) => { e.stopPropagation(); handleLocalUndo() }}
                 disabled={!canUndo}
                 title="Undo (Ctrl+Z)"
                 type="button"

@@ -7,7 +7,6 @@
     "db:push": "drizzle-kit push",
     "db:push:dry": "drizzle-kit push --dry-run",
     "db:studio": "drizzle-kit studio",
-    "db:migrate:prod": "DATABASE_URL=$SUPABASE_DB_URL drizzle-kit push",
     "vercel:dev": "vercel dev",
     "vercel:deploy": "vercel deploy",
     "vercel:deploy:prod": "vercel deploy --prod"

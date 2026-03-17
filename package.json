@@ -5,7 +5,11 @@
     "build:client": "npm run build --prefix client",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:push:dry": "drizzle-kit push --dry-run",
+    "db:studio": "drizzle-kit studio",
+    "vercel:dev": "vercel dev",
+    "vercel:deploy": "vercel deploy",
+    "vercel:deploy:prod": "vercel deploy --prod"
   },
   "name": "stonie-notes",
   "version": "1.0.0",
